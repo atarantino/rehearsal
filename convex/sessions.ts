@@ -25,6 +25,7 @@ import {
 } from "../shared/types";
 import { requireUser } from "./users";
 import { limits } from "./limits";
+import { deleteCoaching } from "./coaching";
 export async function owned(ctx: QueryCtx | MutationCtx, id: Id<"sessions">) {
   const user = await requireUser(ctx);
   const s = await ctx.db.get(id);
@@ -340,6 +341,7 @@ export const remove = mutation({
       await ctx.scheduler.runAfter(0, internal.voice.hangupDeleted, {
         liveId: s.liveId,
       });
+    await deleteCoaching(ctx, id);
     await ctx.db.delete(id);
     await ctx.scheduler.runAfter(0, internal.sessions.purgeFragments, { id });
     return null;
