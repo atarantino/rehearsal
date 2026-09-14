@@ -12,7 +12,7 @@
 - **Auth:** Convex Auth
 - **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-14T01:15:40Z
+- **Last updated:** 2026-09-14T16:41:27Z
 
 ## Log
 
@@ -94,6 +94,13 @@ Recorded a short demo of actual hosted preparation and two voice attempts.
 The draft uses synthetic examples, accelerated playback, and AI narration; the
 repeated answer verifies an honest unchanged comparison. It does not claim a human
 microphone check or improved second answer (`public/rehearsal-demo.mp4`).
+
+### 2026-09-14 - 71b6148
+Added browser-side PDF/DOCX resume import, editable defaults and opportunity overrides, and resume snapshots retained for retries (c8c6550; `src/Resume.tsx`, `src/resume.worker.ts`). Convex queries and ownership-checked mutations persist this context (`convex/resumes.ts`, `convex/schema.ts`, `convex/sessions.ts`).
+Clarified focused practice as one question with up to two follow-ups, and distinguished it from a full mock interview (3fb1ebd, merged in 0ea16ec; `src/App.tsx`, `README.md`).
+Made the waveform respond to both microphone and interviewer audio, with distinct speaking labels and colors, smoother motion, and CSS updates that avoid redrawing the whole app each frame (`src/live.ts`, `src/App.tsx`, `src/style.css`).
+Added an orbit, pulsing hints, and a moving activity indicator while “Finding the useful details” waits for feedback. Both animations respect reduced motion.
+Consulted Claude Opus through the CLI on audio measurement, rendering performance, accessibility, and animation design. The production build, TypeScript check, and all 13 browser tests passed; synthetic audio checks covered both voices, mute, silence, reduced motion, and pending feedback (`tests/browser.spec.ts`). These checks do not establish a new deployment or a human microphone test.
 
 ## Submission readiness
 
