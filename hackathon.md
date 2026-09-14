@@ -12,7 +12,7 @@
 - **Auth:** Convex Auth
 - **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-14T16:45:38Z
+- **Last updated:** 2026-09-14T16:50:34Z
 
 ## Log
 
@@ -160,6 +160,12 @@ Convex review now corrects the rejected response with a field-specific hint, sav
 All 53 branch tests passed: 21 unit/API, 21 backend, and 11 browser tests. The production build and development backend push passed. The original rejected quote was unavailable, so formatting regressions use synthetic fixtures; no production deployment was performed for this fix.
 Local commit `2f44b1e` now records the previously logged voice-reliability and preparation changes; those entries described their earlier working-tree and release state.
 Merged commit `b16f31c` ([PR #11](https://github.com/atarantino/rehearsal/pull/11)) adds separate microphone/interviewer visualization and reduced-motion-aware review animations (`src/live.ts`, `src/App.tsx`, `src/style.css`). These changes were inspected locally; tests were not rerun for this log update.
+
+### 2026-09-14 - 06dc4a9: voice reliability conflict resolution
+Resolved [PR #13](https://github.com/atarantino/rehearsal/pull/13) against current main, preserving resume support, voice animations, and both build-log histories.
+Kept STUN and disconnect recovery alongside microphone/interviewer visualization; interruption warnings take priority over speaking labels (`src/live.ts`, `src/App.tsx`, `tests/browser.spec.ts`).
+All 57 tests passed: 17 unit/API, 22 Convex backend, and 18 browser tests. Application/backend typechecks and the production build passed.
+Pushed the merge and confirmed the PR was mergeable; corrected its description to reflect retained resume functionality. No deployment or live microphone test was performed, and these checks were not rerun for this log update.
 
 ## Submission readiness
 
