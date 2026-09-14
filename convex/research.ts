@@ -1,7 +1,7 @@
 import { v, type Infer } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { components, internal } from "./_generated/api";
-import { FirecrawlClient } from "@firecrawl/firecrawl-convex";
+import { FirecrawlClient } from "./firecrawl";
 import { structured } from "./openai";
 import {
   publicUrl,

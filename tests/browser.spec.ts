@@ -1,124 +1,13 @@
-import { test, expect, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./helpers/browser";
 import { answer } from "./fixtures";
-async function fakeVoice(page: Page) {
-  await page.addInitScript(() => {
-    const w = window as any;
-    w.__stopped = false;
-    w.__peerClosed = false;
-    w.__sent = [];
-    const context = new AudioContext();
-    const stream = context.createMediaStreamDestination().stream;
-    w.__tracks = stream.getTracks();
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      value: async () => stream,
-      configurable: true,
-    });
-    class Channel {
-      readyState = "open";
-      onmessage: any;
-      onclose: any;
-      send(raw: string) {
-        const e = JSON.parse(raw);
-        w.__sent.push(e);
-        if (e.type === "session.close")
-          setTimeout(
-            () =>
-              this.emit({
-                type: "session.closed",
-                reason: "close_requested",
-                usage: { seconds: 42 },
-              }),
-            10,
-          );
-        if (
-          e.type === "session.input_audio.mute" ||
-          e.type === "session.input_audio.unmute"
-        )
-          setTimeout(
-            () =>
-              this.emit({
-                type:
-                  e.type === "session.input_audio.mute"
-                    ? "session.input_audio.muted"
-                    : "session.input_audio.unmuted",
-                client_event_id: e.event_id,
-              }),
-            1,
-          );
-      }
-      emit(e: any) {
-        this.onmessage?.({ data: JSON.stringify(e) });
-      }
-      close() {
-        this.readyState = "closed";
-        this.onclose?.();
-      }
-    }
-    class Peer {
-      iceGatheringState = "complete";
-      connectionState = "connected";
-      localDescription: any;
-      ontrack: any;
-      onconnectionstatechange: any;
-      addTrack() {}
-      createDataChannel() {
-        w.__channel = new Channel();
-        return w.__channel;
-      }
-      async createOffer() {
-        return { type: "offer", sdp: "fixture-offer" };
-      }
-      async setLocalDescription(d: any) {
-        this.localDescription = d;
-      }
-      async setRemoteDescription() {
-        setTimeout(
-          () =>
-            w.__channel.emit({
-              type: "session.started",
-              session: { id: "fixture" },
-            }),
-          10,
-        );
-      }
-      close() {
-        w.__peerClosed = true;
-      }
-      addEventListener() {}
-      removeEventListener() {}
-    }
-    w.RTCPeerConnection = Peer;
-  });
-}
-async function speak(page: Page) {
-  await page.evaluate((text) => {
-    (window as any).__channel.emit({
-      type: "session.output_transcript.delta",
-      event_id: "q1",
-      delta: "Tell me about a difficult project.",
-      start_ms: 0,
-      end_ms: 800,
-    });
-    (window as any).__channel.emit({
-      type: "session.input_transcript.delta",
-      event_id: "u1",
-      delta: text,
-      start_ms: 700,
-      end_ms: 1900,
-    });
-    (window as any).__channel.emit({
-      type: "session.input_transcript.delta",
-      event_id: "u1",
-      delta: text,
-      start_ms: 700,
-      end_ms: 1900,
-    });
-  }, answer);
-}
+import { fakeVoice, speak } from "./helpers/voice";
 async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await page.goto("/");
   if (mode === "mock")
-    await page.getByRole("button", { name: /Mock interview A real conversation/ }).click();
+    await page
+      .getByRole("button", { name: /Mock interview A real conversation/ })
+      .click();
   if (mode === "coached")
     await page
       .getByRole("button", { name: /Coached practice One question/ })
@@ -130,13 +19,15 @@ async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await expect(page.getByRole("status")).toHaveText("Connected");
 }
 
-test("setup is usable at desktop and mobile widths", async ({ page }) => {
+test("setup is usable at desktop and mobile widths", async ({
+  page,
+}, testInfo) => {
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: /Find the words/ }),
   ).toBeVisible();
   await page.screenshot({
-    path: "test-results/setup-desktop.png",
+    path: testInfo.outputPath("setup-desktop.png"),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -149,13 +40,13 @@ test("setup is usable at desktop and mobile widths", async ({ page }) => {
     ),
   ).toBe(true);
   await page.screenshot({
-    path: "test-results/setup-mobile.png",
+    path: testInfo.outputPath("setup-mobile.png"),
     fullPage: true,
   });
 });
 test("coached flow, mute, captions, review, retry comparison, history and deletion", async ({
   page,
-}) => {
+}, testInfo) => {
   await fakeVoice(page);
   await start(page);
   await speak(page);
@@ -181,7 +72,7 @@ test("coached flow, mute, captions, review, retry comparison, history and deleti
   ).toBe(true);
   expect(await page.evaluate(() => (window as any).__peerClosed)).toBe(true);
   await page.screenshot({
-    path: "test-results/review-desktop.png",
+    path: testInfo.outputPath("review-desktop.png"),
     fullPage: true,
   });
   await page.getByRole("button", { name: "Try this answer again" }).click();

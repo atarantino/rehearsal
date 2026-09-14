@@ -123,6 +123,13 @@ export const update = internalMutation({
   returns: v.null(),
   handler: async (ctx, { id, ...patch }) => {
     await ctx.db.patch(id, patch);
+    console.info(
+      JSON.stringify({
+        event: "preparation.progress",
+        opportunityId: id,
+        status: patch.status,
+      }),
+    );
     return null;
   },
 });

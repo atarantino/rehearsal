@@ -1577,6 +1577,11 @@ summary::-webkit-details-marker {
   .topbar {
     display: none;
   }
+  .topbar:has(.text-button) {
+    display: flex;
+    height: 56px;
+    padding: 0 22px;
+  }
   .content {
     padding: 30px 22px;
   }

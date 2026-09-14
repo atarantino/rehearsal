@@ -1,9 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "./helpers/browser";
 import { projectPdf } from "./pdfFixture";
 
 test("coaching conversation, project notes, saved draft, and practice handoff", async ({
   page,
-}) => {
+}, testInfo) => {
   await page.goto("/tests/coaching-harness.html");
   await page.getByRole("button", { name: "Paste project notes" }).click();
   await page.getByLabel("Project title").fill("Launch notes");
@@ -30,7 +31,7 @@ test("coaching conversation, project notes, saved draft, and practice handoff", 
     "I owned rollout planning and chose staged releases.",
   );
   await page.screenshot({
-    path: "test-results/coaching-desktop.png",
+    path: testInfo.outputPath("coaching-desktop.png"),
     fullPage: true,
   });
   await page.getByRole("button", { name: "Practice this version" }).click();
@@ -47,7 +48,7 @@ test("coaching conversation, project notes, saved draft, and practice handoff", 
 
 test("failed reply recovers and mobile PDF controls remain usable", async ({
   page,
-}) => {
+}, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/tests/coaching-harness.html");
   await page.getByLabel("Ask your coach").fill("simulate failure");
@@ -57,23 +58,19 @@ test("failed reply recovers and mobile PDF controls remain usable", async ({
     page.getByRole("button", { name: "Use as practice draft" }),
   ).toBeVisible();
   await expect(page.locator(".coaching-message.user")).toHaveCount(1);
-  await page
-    .getByLabel("Upload project PDF")
-    .setInputFiles({
-      name: "Launch.pptx",
-      mimeType: "application/octet-stream",
-      buffer: Buffer.from("invalid"),
-    });
+  await page.getByLabel("Upload project PDF").setInputFiles({
+    name: "Launch.pptx",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("invalid"),
+  });
   await expect(page.getByRole("alert")).toContainText(
     "Export Word documents or slides",
   );
-  await page
-    .getByLabel("Upload project PDF")
-    .setInputFiles({
-      name: "Launch.pdf",
-      mimeType: "application/pdf",
-      buffer: Buffer.from(projectPdf()),
-    });
+  await page.getByLabel("Upload project PDF").setInputFiles({
+    name: "Launch.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(projectPdf()),
+  });
   await page.getByText("Launch.pdf", { exact: true }).click();
   await expect(page.getByText(/\[Page 1\]/)).toBeVisible();
   expect(
@@ -82,7 +79,7 @@ test("failed reply recovers and mobile PDF controls remain usable", async ({
     ),
   ).toBe(true);
   await page.screenshot({
-    path: "test-results/coaching-mobile.png",
+    path: testInfo.outputPath("coaching-mobile.png"),
     fullPage: true,
   });
   await page.getByRole("button", { name: "Remove Launch.pdf" }).click();
