@@ -119,11 +119,13 @@ async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await page.goto("/");
   if (mode === "mock")
     await page
-      .getByRole("button", { name: /Mock interview A real conversation/ })
+      .getByRole("button", { name: /Mock interview Practice a full interview/ })
       .click();
   if (mode === "coached")
     await page
-      .getByRole("button", { name: /Coached practice One question/ })
+      .getByRole("button", {
+        name: /Focused practice Practice one interview question with up to two follow-ups/,
+      })
       .click();
   await page
     .getByLabel("What role are you preparing for?")
@@ -199,11 +201,11 @@ test("coached flow, mute, captions, review, retry comparison, history and deleti
   await page.getByRole("button", { name: /Session history/ }).click();
   await expect(
     page
-      .getByRole("button", { name: /Product manager Coached practice/ })
+      .getByRole("button", { name: /Product manager Focused practice/ })
       .first(),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: /Product manager Coached practice/ })
+    .getByRole("button", { name: /Product manager Focused practice/ })
     .first()
     .click();
   await expect(
@@ -217,7 +219,7 @@ test("coached flow, mute, captions, review, retry comparison, history and deleti
     page.getByRole("heading", { name: /Your practice/ }),
   ).toBeVisible();
 });
-test("mock interview completes and next question starts coached practice", async ({
+test("mock interview completes and next question starts focused practice", async ({
   page,
 }) => {
   await fakeVoice(page);

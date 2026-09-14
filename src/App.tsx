@@ -465,7 +465,10 @@ export default function App() {
                         </span>
                       </span>
                       <strong>Mock interview</strong>
-                      <p>A real conversation, with feedback at the end.</p>
+                      <p>
+                        Practice a full interview across several questions. Get
+                        feedback at the end.
+                      </p>
                       <span className="duration">
                         <Clock3 size={13} /> About 15 minutes
                       </span>
@@ -482,8 +485,11 @@ export default function App() {
                           {config.mode === "coached" && <i />}
                         </span>
                       </span>
-                      <strong>Coached practice</strong>
-                      <p>One question. Useful feedback. Another try.</p>
+                      <strong>Focused practice</strong>
+                      <p>
+                        Practice one interview question with up to two
+                        follow-ups. Get feedback, then try again.
+                      </p>
                       <span className="duration">
                         <Clock3 size={13} /> Up to 5 minutes per try
                       </span>
@@ -636,7 +642,7 @@ export default function App() {
                 <span className="eyebrow">
                   {config.mode === "mock"
                     ? "MOCK INTERVIEW"
-                    : "COACHED PRACTICE"}
+                    : "FOCUSED PRACTICE"}
                 </span>
                 <span className="timer">
                   <Clock3 size={15} />
@@ -773,7 +779,7 @@ export default function App() {
                   <p className="eyebrow">
                     {record.config.mode === "mock"
                       ? "MOCK INTERVIEW"
-                      : "COACHED PRACTICE"}{" "}
+                      : "FOCUSED PRACTICE"}{" "}
                     ·{" "}
                     {new Date(record.createdAt).toLocaleDateString(undefined, {
                       month: "short",
@@ -1022,7 +1028,7 @@ export default function App() {
                           <p>
                             {s.config.mode === "mock"
                               ? "Mock interview"
-                              : "Coached practice"}
+                              : "Focused practice"}
                             {s.config.relation === "retry"
                               ? " · Repeat attempt"
                               : ""}
