@@ -2,17 +2,17 @@
 
 - **Project:** Rehearsal
 - **Event:** Convex All Gas Hackathon
-- **What it does:** Turns interview invitations and job postings into sourced briefs, spoken practice, grounded feedback, and retries.
+- **What it does:** Turns interview invitations and job postings into sourced briefs, spoken practice, grounded feedback, project-informed coaching conversations, and retries.
 - **Live app:** https://acoustic-cuttlefish-868.convex.site
 - **Repo:** https://github.com/atarantino/rehearsal
 - **Frontend:** Convex static hosting
 - **Convex deployment:** https://acoustic-cuttlefish-868.convex.cloud
-- **Components:** Convex Auth core, passkey and username; workflow; rate-limiter; static-hosting
-- **Convex features:** schema, indexes, queries, mutations, actions, HTTP actions, realtime queries, scheduled functions, file storage
+- **Components:** @convex-dev/auth (core, passkey and username), @convex-dev/workflow, @convex-dev/rate-limiter, @convex-dev/static-hosting, @convex-dev/agent
+- **Convex features:** schema, indexes, queries, mutations, actions, HTTP actions, realtime queries, scheduled functions, file storage, Agent threads, AI Gateway integration
 - **Auth:** Convex Auth
-- **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; Codex subscription reasoning remains available in local mode
+- **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; coaching configures openai/gpt-5.6-terra through the Convex AI Gateway with direct OpenAI fallback when the gateway is unavailable; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-14T01:15:40Z
+- **Last updated:** 2026-09-14T02:22:57.955Z
 
 ## Log
 
@@ -94,6 +94,22 @@ Recorded a short demo of actual hosted preparation and two voice attempts.
 The draft uses synthetic examples, accelerated playback, and AI narration; the
 repeated answer verifies an honest unchanged comparison. It does not claim a human
 microphone check or improved second answer (`public/rehearsal-demo.mp4`).
+
+### 2026-09-14 - 93258ce
+Added “Work on this story”: a saved coaching conversation with the attempt’s transcript, feedback, role context, and optional project materials (`src/Coaching.tsx`, `shared/coaching.ts`).
+Registered Convex Agent for per-attempt threads, with scheduled replies, failure recovery, quotas, ownership checks, and deletion cleanup (`convex/convex.config.ts`, `convex/coaching.ts`, `convex/coach.ts`).
+Added PDF uploads with page-referenced text extraction and pasted notes; Word and PowerPoint currently require PDF export. Editable drafts carry into retries as separate practice notes, preserving the original feedback and speech-evidence rules (`convex/projectFiles.ts`, `shared/projectPdf.ts`, `server/prompts.ts`).
+Delivery checks passed: build, 18 unit/integration tests, 16 Convex tests, and 11 browser tests. Real local Convex checks covered PDF extraction, persistence, Agent thread creation, missing-model recovery, and deletion; these are prior session results, not tests rerun for this log update.
+Coaching is committed and verified locally, not deployed to the public app. Conversation tests use a mock model; live coaching replies remain unverified because this checkout lacked hosted deployment and AI credentials.
+The previously logged hosted milestone is committed as `e080892`; `a1a6c9c` adds the browser demo player (`public/demo.html`). Existing public app and demo URLs describe that earlier release.
+
+### 2026-09-14 - 2f5420d
+Added repeatable worktree setup, diagnostics, startup/shutdown, and a simulated browser, with separate local Convex backends and ports (`scripts/agent.mjs`, `scripts/agent/`, `scripts/agent-browser.ts`).
+Added Convex browser QA for passkey login, preparation workflows, persisted transcripts, feedback, retries, deletion, and failed or abandoned feedback recovery (`tests/cloud.spec.ts`, `tests/convex-fixtures/`).
+Added session/opportunity lifecycle logs, failure scenarios, screenshots, traces, and per-run reports; GitHub Actions now configures the same verification command (`convex/voice.ts`, `convex/preparation.ts`, `scripts/verify.mjs`, `.github/workflows/verify.yml`).
+Fixed mobile Sign out visibility and prevented QA artifacts from reloading the interactive app. Rebased onto the preparation branch while preserving project coaching dependencies, UI fixtures, and tests (`src/style.css`, `vite.config.ts`, `tests/test-server.ts`, `playwright.config.ts`).
+Local verification of this commit passed the build, 21 unit/integration tests, 16 Convex tests, 11 Express/coaching browser tests, and 6 Convex browser tests; the saved report completed at 2026-09-14T02:22:57.955Z. These are prior run results, not checks rerun for this log update.
+The Convex browser suite uses a real isolated local backend with synthetic provider responses and WebRTC. No public deployment or paid live-service check was performed for this milestone; CI success is not established by the local report.
 
 ## Submission readiness
 

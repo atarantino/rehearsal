@@ -9,11 +9,14 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as coach from "../coach.js";
+import type * as coaching from "../coaching.js";
 import type * as email from "../email.js";
 import type * as http from "../http.js";
 import type * as limits from "../limits.js";
 import type * as openai from "../openai.js";
 import type * as preparation from "../preparation.js";
+import type * as projectFiles from "../projectFiles.js";
 import type * as research from "../research.js";
 import type * as sessions from "../sessions.js";
 import type * as users from "../users.js";
@@ -29,11 +32,14 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  coach: typeof coach;
+  coaching: typeof coaching;
   email: typeof email;
   http: typeof http;
   limits: typeof limits;
   openai: typeof openai;
   preparation: typeof preparation;
+  projectFiles: typeof projectFiles;
   research: typeof research;
   sessions: typeof sessions;
   users: typeof users;
@@ -77,4 +83,5 @@ export declare const components: {
   rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
   agentmail: import("@agentmail/convex/_generated/component.js").ComponentApi<"agentmail">;
   staticHosting: import("@convex-dev/static-hosting/_generated/component.js").ComponentApi<"staticHosting">;
+  agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
 };

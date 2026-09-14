@@ -2,6 +2,25 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { record, fragment, brief, source, prepStatus } from "./validators";
 export default defineSchema({
+  coaching: defineTable({
+    sessionId: v.id("sessions"),
+    threadId: v.string(),
+    draft: v.string(),
+    turns: v.number(),
+    revision: v.number(),
+    activeMessageId: v.optional(v.string()),
+    failedMessageId: v.optional(v.string()),
+    jobId: v.optional(v.id("_scheduled_functions")),
+    error: v.optional(v.string()),
+  }).index("by_sessionId", ["sessionId"]),
+  projectSources: defineTable({
+    sessionId: v.id("sessions"),
+    name: v.string(),
+    kind: v.union(v.literal("pdf"), v.literal("notes")),
+    text: v.string(),
+    storageId: v.optional(v.id("_storage")),
+    pages: v.optional(v.number()),
+  }).index("by_sessionId", ["sessionId"]),
   users: defineTable({ username: v.union(v.string(), v.null()) }),
   sessions: defineTable({
     ownerId: v.id("users"),

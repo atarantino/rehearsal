@@ -28,6 +28,8 @@ import { api } from "./api";
 import { cloudEnabled, convex } from "./convex";
 import { api as backend } from "../convex/_generated/api";
 import { Preparation } from "./Preparation";
+import { Coaching } from "./Coaching";
+import { practiceWithDraft } from "../shared/coaching";
 import { SignOut } from "./Auth";
 import { LiveSession } from "./live";
 import { captions, clock } from "./transcript";
@@ -898,6 +900,17 @@ export default function App() {
                       </div>
                     </section>
                   )}
+                  {cloudEnabled && (
+                    <Coaching
+                      key={record.id}
+                      sessionId={record.id}
+                      onPractice={(draft) => {
+                        const next = practiceWithDraft(record, draft);
+                        setConfig(next);
+                        void start(undefined, next);
+                      }}
+                    />
+                  )}
                 </>
               ) : (
                 <section className="empty-feedback">
@@ -1044,8 +1057,9 @@ export default function App() {
           >
             <h2 id="delete-title">Delete this session?</h2>
             <p>
-              This removes its transcript and feedback from your workspace.
-              Later attempts remain available.
+              This removes its transcript, feedback, coaching conversation,
+              practice draft, and project materials from your workspace. Later
+              attempts remain available.
             </p>
             <div>
               <button

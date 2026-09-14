@@ -44,6 +44,7 @@ export const start = action({
       internal.sessions.reserve,
       { config: args.config, requestId: args.requestId },
     );
+    console.info(JSON.stringify({ event: "voice.reserved", sessionId: id }));
     let liveId: string | undefined;
     try {
       const s = await ctx.runQuery(internal.sessions.full, { id });
@@ -69,6 +70,7 @@ export const start = action({
         throw new ConvexError(
           "This session was closed before it connected. Start another attempt.",
         );
+      console.info(JSON.stringify({ event: "voice.active", sessionId: id }));
       return { record: { ...s, status: "active" }, sdp: data.transport.sdp };
     } catch (e) {
       if (liveId)
@@ -138,6 +140,7 @@ export const review = action({
       id,
     });
     if (claimed === null) return ctx.runQuery(api.sessions.get, { id });
+    console.info(JSON.stringify({ event: "feedback.started", sessionId: id }));
     try {
       const s = await ctx.runQuery(internal.sessions.full, { id });
       const previous = s.config.previousId
@@ -180,8 +183,10 @@ export const review = action({
         claim: claimed,
         feedback,
       });
+      console.info(JSON.stringify({ event: "feedback.ready", sessionId: id }));
       return ctx.runQuery(api.sessions.get, { id });
     } catch (e) {
+      console.info(JSON.stringify({ event: "feedback.failed", sessionId: id }));
       await ctx.runMutation(internal.sessions.saveFeedback, {
         id,
         claim: claimed,

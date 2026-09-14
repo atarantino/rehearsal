@@ -2,7 +2,7 @@
 
 A local voice interview coach for behavioral practice. React + TypeScript, Vite, Express, OpenAI GPT-Live, and your ChatGPT-authenticated Codex CLI.
 
-This repository includes the [Convex All Gas Hackathon build log](hackathon.md) and its project-local logging skill. The current app runs locally with Express and JSON storage; Convex integration and public hosting remain planned.
+This document describes the legacy personal Express mode. The current hosted product uses Convex; see the [README](../README.md). For isolated worktrees and automated QA of the current app, use the [agent development runbook](agent-development.md).
 
 ## Run on your Mac
 
@@ -84,7 +84,7 @@ VITE_LOCAL_MODE=true npm run build
 npm run test:e2e
 ```
 
-Browser tests use an isolated fixture server and simulated WebRTC events; the production server cannot switch into fixture mode. They exercise both complete flows, mute acknowledgments, captions, retry comparisons, saved history, deletion, microphone denial, disconnects, hard limits, failed saves, API rejection, and retrying feedback. Storage tests exercise concurrent writes and restart recovery. Screenshots/test traces are written outside the app to `../../work/checks/`.
+Browser tests use an isolated fixture server and simulated WebRTC events; the production server cannot switch into fixture mode. They exercise both complete flows, mute acknowledgments, captions, retry comparisons, saved history, deletion, microphone denial, disconnects, hard limits, failed saves, API rejection, and retrying feedback. Storage tests exercise concurrent writes and restart recovery. Screenshots, browser reports, and failure traces are written to the run directory printed by the command under `.agent/artifacts/`.
 
 To evaluate actual coaching on short, vague, specific, and incomplete sample answers:
 
@@ -94,7 +94,7 @@ npm run eval:feedback
 
 This uses Codex subscription capacity by default and prints synthetic sample feedback. With `REASONING_BACKEND=api`, it instead makes billable API calls. It stops at the first credential, quota, or model failure. Inspect suggestions for factual grounding and usefulness, beyond automated quote checks.
 
-### Verification status at delivery
+### Historical verification status of the legacy delivery
 
 The TypeScript/production build, 16 unit/integration tests, and 9 browser tests passed after the subscription integration. Desktop and mobile layouts were visually inspected. A real structured Codex request and all four sample feedback evaluations succeeded through the existing ChatGPT login with API credentials removed. The short and incomplete samples were marked as limited evidence; quoted strengths and improvements were verified against each sample. The current GPT-Live model-access check passes. The full live voice-to-Codex round trip has not yet been verified against the real voice service; automated tests cover the delegation contract and lifecycle. No substitute voice model is used.
 
@@ -115,4 +115,4 @@ After adding a valid key, verify:
 - [Responses and client delegation](https://developers.openai.com/api/docs/guides/live-delegation)
 - [Server sideband controls](https://developers.openai.com/api/docs/guides/voice-server-controls?api=live)
 
-Public hosting, billing, accounts, file uploads, reusable profiles, technical interview modes, and progress dashboards are outside this version.
+The legacy Express mode remains a personal local app. Public hosting and accounts are provided by the current Convex product; they are not features of this legacy mode.

@@ -1,148 +1,7 @@
-import { test, expect, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./helpers/browser";
 import { answer } from "./fixtures";
-async function fakeVoice(
-  page: Page,
-  gathering: "complete" | "slow" | "empty" = "complete",
-  startDisconnected = false,
-) {
-  await page.addInitScript(
-    ({ gathering, startDisconnected }) => {
-      const w = window as any;
-      w.__stopped = false;
-      w.__peerClosed = false;
-      w.__sent = [];
-      const context = new AudioContext();
-      const stream = context.createMediaStreamDestination().stream;
-      w.__tracks = stream.getTracks();
-      Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-        value: async () => stream,
-        configurable: true,
-      });
-      class Channel {
-        readyState = "open";
-        onmessage: any;
-        onclose: any;
-        send(raw: string) {
-          const e = JSON.parse(raw);
-          w.__sent.push(e);
-          if (
-            e.type === "session.close" &&
-            w.__peer.iceConnectionState !== "disconnected"
-          )
-            setTimeout(
-              () =>
-                this.emit({
-                  type: "session.closed",
-                  reason: "close_requested",
-                  usage: { seconds: 42 },
-                }),
-              10,
-            );
-          if (
-            e.type === "session.input_audio.mute" ||
-            e.type === "session.input_audio.unmute"
-          )
-            setTimeout(
-              () =>
-                this.emit({
-                  type:
-                    e.type === "session.input_audio.mute"
-                      ? "session.input_audio.muted"
-                      : "session.input_audio.unmuted",
-                  client_event_id: e.event_id,
-                }),
-              1,
-            );
-        }
-        emit(e: any) {
-          this.onmessage?.({ data: JSON.stringify(e) });
-        }
-        close() {
-          this.readyState = "closed";
-          this.onclose?.();
-        }
-      }
-      class Peer extends EventTarget {
-        iceGatheringState = gathering === "complete" ? "complete" : "gathering";
-        iceConnectionState = "connected";
-        connectionState = "connected";
-        localDescription: any;
-        ontrack: any;
-        onconnectionstatechange: any;
-        oniceconnectionstatechange: any;
-        constructor(config: RTCConfiguration) {
-          super();
-          w.__peer = this;
-          w.__rtcConfig = config;
-        }
-        addTrack() {}
-        createDataChannel() {
-          w.__channel = new Channel();
-          return w.__channel;
-        }
-        async createOffer() {
-          return {
-            type: "offer",
-            sdp: "fixture-offer\r\n",
-          };
-        }
-        async setLocalDescription(d: any) {
-          this.localDescription = d;
-          if (gathering === "slow")
-            setTimeout(() => this.addCandidate("host"), 100);
-        }
-        addCandidate(type: "host" | "srflx") {
-          this.localDescription.sdp += `a=candidate:1 1 UDP 2130706431 192.0.2.1 5000 typ ${type}\r\n`;
-          this.dispatchEvent(new Event("icecandidate"));
-        }
-        async setRemoteDescription() {
-          setTimeout(() => {
-            if (startDisconnected) {
-              this.iceConnectionState = "disconnected";
-              this.connectionState = "disconnected";
-              this.oniceconnectionstatechange?.();
-              this.onconnectionstatechange?.();
-            }
-            w.__channel.emit({
-              type: "session.started",
-              session: { id: "fixture" },
-            });
-          }, 10);
-        }
-        close() {
-          w.__peerClosed = true;
-        }
-      }
-      w.RTCPeerConnection = Peer;
-    },
-    { gathering, startDisconnected },
-  );
-}
-async function speak(page: Page) {
-  await page.evaluate((text) => {
-    (window as any).__channel.emit({
-      type: "session.output_transcript.delta",
-      event_id: "q1",
-      delta: "Tell me about a difficult project.",
-      start_ms: 0,
-      end_ms: 800,
-    });
-    (window as any).__channel.emit({
-      type: "session.input_transcript.delta",
-      event_id: "u1",
-      delta: text,
-      start_ms: 700,
-      end_ms: 1900,
-    });
-    (window as any).__channel.emit({
-      type: "session.input_transcript.delta",
-      event_id: "u1",
-      delta: text,
-      start_ms: 700,
-      end_ms: 1900,
-    });
-  }, answer);
-}
+import { fakeVoice, speak } from "./helpers/voice";
 async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await page.goto("/");
   if (mode === "mock")
@@ -160,13 +19,15 @@ async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await expect(page.getByRole("status")).toHaveText("Connected");
 }
 
-test("setup is usable at desktop and mobile widths", async ({ page }) => {
+test("setup is usable at desktop and mobile widths", async ({
+  page,
+}, testInfo) => {
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: /Find the words/ }),
   ).toBeVisible();
   await page.screenshot({
-    path: "test-results/setup-desktop.png",
+    path: testInfo.outputPath("setup-desktop.png"),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -179,13 +40,13 @@ test("setup is usable at desktop and mobile widths", async ({ page }) => {
     ),
   ).toBe(true);
   await page.screenshot({
-    path: "test-results/setup-mobile.png",
+    path: testInfo.outputPath("setup-mobile.png"),
     fullPage: true,
   });
 });
 test("coached flow, mute, captions, review, retry comparison, history and deletion", async ({
   page,
-}) => {
+}, testInfo) => {
   await fakeVoice(page);
   await start(page);
   await speak(page);
@@ -211,7 +72,7 @@ test("coached flow, mute, captions, review, retry comparison, history and deleti
   ).toBe(true);
   expect(await page.evaluate(() => (window as any).__peerClosed)).toBe(true);
   await page.screenshot({
-    path: "test-results/review-desktop.png",
+    path: testInfo.outputPath("review-desktop.png"),
     fullPage: true,
   });
   await page.getByRole("button", { name: "Try this answer again" }).click();

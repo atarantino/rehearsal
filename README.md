@@ -14,8 +14,22 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 - **Firecrawl** reads job postings and public company pages. Briefs include sources, tailored questions, and details that need confirming.
 - **OpenAI** conducts spoken interviews with `gpt-live-1`, using `gpt-5.6-terra` for delegated reasoning and written coaching.
 - **Convex** stores accounts, opportunities, transcripts, feedback, and retry relationships. Durable workflows show progress live; scheduled functions close abandoned voice sessions; rate limits bound paid work.
+- **Convex Agent** manages a saved coaching conversation for each reviewed attempt. “Work on this story” includes the answer, feedback, and role context; add a project PDF or notes, develop an editable draft, then “Practice this version” to retry the question with those notes.
 
 Passkey signup is open without an invitation. Coached attempts last up to five minutes; mock interviews have a twenty-minute maximum. Feedback quotes must match current user speech exactly. Unsupported numeric outline claims are rejected. A retry keeps the question and compares attempts.
+
+## Agent setup and verification
+
+For an isolated worktree with no provider credentials:
+
+```sh
+npm run agent:setup
+npm run agent:up
+npm run verify
+npm run agent:down
+```
+
+This runs the current Convex app with real local authentication and deterministic external-provider fixtures. Every verification run creates its own backend and saves logs, browser reports, screenshots, and failure traces. See [agent development](docs/agent-development.md) for diagnostics, scenarios, worktree isolation, and live-service QA.
 
 ## Develop
 
@@ -47,9 +61,7 @@ The original personal Express app with local JSON history and Codex subscription
 
 ```sh
 node scripts/configure-cloud.mjs --prod --site=https://YOUR-PROD-DEPLOYMENT.convex.site
-npm run build
-npm test
-npm run test:e2e
+npm run verify
 npm run deploy
 ```
 
@@ -64,6 +76,14 @@ Credentials stay on the backend. Audio goes through OpenAI WebRTC; Rehearsal doe
 Email text is processed; attachments are not imported. Firecrawl receives public URLs and search terms. Enabling replies sends an authenticated workspace link in the original thread. The app requests `store: false` for OpenAI calls; this is not a claim about provider-wide retention.
 
 Passkeys use Convex Auth v2 alpha. Account recovery is not implemented, so keep access to your passkey. The current AgentMail account has a small inbox allowance; URL preparation remains available when inbox capacity is full. Quotas allow ten preparations and ten voice starts per account per day, with shared ceilings of one hundred each.
+
+### Story coaching
+
+Story coaching is available in the Convex workspace after feedback is ready. Conversations and drafts persist with the attempt. PDF uploads support selectable text (up to 4 MB, 20 pages, and 20,000 extracted characters); scanned pages, charts, and images are not interpreted. Export Word documents or PowerPoint decks as PDF, or paste notes. Each attempt accepts three materials, and the extracted text can be inspected in the panel before asking the coach to use it.
+
+Coaching uses `@convex-dev/agent` with `gpt-5.6-terra`, through the Convex AI Gateway by default. On free, local, or self-hosted deployments where the gateway is unavailable, it uses the existing server-side `OPENAI_API_KEY`. Replies run as scheduled actions and remain recoverable after a tab closes or a model failure. There are 60 coaching requests per account per day, 500 shared requests per day, and 60 user messages per conversation. PDF processing allows 20 uploads per account per day.
+
+Uploaded PDFs, extracted text, coaching messages, and drafts are private to the attempt owner. The model receives extracted text and the conversation context; original PDFs stay in Convex storage. Removing a material deletes its file and extracted text and stops including it in future context; earlier replies may still contain excerpts. Deleting the attempt also deletes its coaching thread, draft, and materials. A practice draft is carried into the retry as preparation, never as evidence of what was said; feedback quote and numeric-evidence validation remain in place. The original Express local mode does not include story coaching.
 
 Automated checks cover ownership, transcript deduplication, feedback leases, cleanup, webhook signatures, and browser practice/retry flows. Real-service checks use synthetic audio and invitations; a human microphone listening check remains part of final demo rehearsal.
 
