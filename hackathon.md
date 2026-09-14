@@ -12,7 +12,7 @@
 - **Auth:** Convex Auth
 - **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-14T16:33:30Z
+- **Last updated:** 2026-09-14T16:45:38Z
 
 ## Log
 
@@ -146,6 +146,13 @@ Post-deployment sign-in, resume-control, and Firefox-notice checks passed. The d
 Chromium voice call stayed connected for 120 seconds through the forced Convex
 reconnect and received transcript events through 119.8 seconds.
 These changes improve failure handling; they cannot recover speech never transcribed.
+
+### 2026-09-14 - 9b931c2: grounded review recovery; repository reconciliation
+Made feedback quote matching tolerate whitespace and quotation-mark formatting while restoring the exact saved wording; invented claims and quotes stitched across speaker turns still fail (`shared/feedback.ts`, `server/prompts.ts`).
+Convex review now corrects the rejected response with a field-specific hint, saves actionable errors, and preserves transcripts for retry; the retry button clears stale feedback banners (`convex/voice.ts`, `src/App.tsx`). Opened [PR #12](https://github.com/atarantino/rehearsal/pull/12) from `fix/grounded-review-errors`.
+All 53 branch tests passed: 21 unit/API, 21 backend, and 11 browser tests. The production build and development backend push passed. The original rejected quote was unavailable, so formatting regressions use synthetic fixtures; no production deployment was performed for this fix.
+Local commit `2f44b1e` now records the previously logged voice-reliability and preparation changes; those entries described their earlier working-tree and release state.
+Merged commit `b16f31c` ([PR #11](https://github.com/atarantino/rehearsal/pull/11)) adds separate microphone/interviewer visualization and reduced-motion-aware review animations (`src/live.ts`, `src/App.tsx`, `src/style.css`). These changes were inspected locally; tests were not rerun for this log update.
 
 ## Submission readiness
 
