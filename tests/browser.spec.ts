@@ -3,107 +3,120 @@ import { answer } from "./fixtures";
 async function fakeVoice(
   page: Page,
   gathering: "complete" | "slow" | "empty" = "complete",
+  startDisconnected = false,
 ) {
-  await page.addInitScript((gathering) => {
-    const w = window as any;
-    w.__stopped = false;
-    w.__peerClosed = false;
-    w.__sent = [];
-    const context = new AudioContext();
-    const stream = context.createMediaStreamDestination().stream;
-    w.__tracks = stream.getTracks();
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      value: async () => stream,
-      configurable: true,
-    });
-    class Channel {
-      readyState = "open";
-      onmessage: any;
-      onclose: any;
-      send(raw: string) {
-        const e = JSON.parse(raw);
-        w.__sent.push(e);
-        if (e.type === "session.close")
-          setTimeout(
-            () =>
-              this.emit({
-                type: "session.closed",
-                reason: "close_requested",
-                usage: { seconds: 42 },
-              }),
-            10,
-          );
-        if (
-          e.type === "session.input_audio.mute" ||
-          e.type === "session.input_audio.unmute"
-        )
-          setTimeout(
-            () =>
-              this.emit({
-                type:
-                  e.type === "session.input_audio.mute"
-                    ? "session.input_audio.muted"
-                    : "session.input_audio.unmuted",
-                client_event_id: e.event_id,
-              }),
-            1,
-          );
+  await page.addInitScript(
+    ({ gathering, startDisconnected }) => {
+      const w = window as any;
+      w.__stopped = false;
+      w.__peerClosed = false;
+      w.__sent = [];
+      const context = new AudioContext();
+      const stream = context.createMediaStreamDestination().stream;
+      w.__tracks = stream.getTracks();
+      Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+        value: async () => stream,
+        configurable: true,
+      });
+      class Channel {
+        readyState = "open";
+        onmessage: any;
+        onclose: any;
+        send(raw: string) {
+          const e = JSON.parse(raw);
+          w.__sent.push(e);
+          if (
+            e.type === "session.close" &&
+            w.__peer.iceConnectionState !== "disconnected"
+          )
+            setTimeout(
+              () =>
+                this.emit({
+                  type: "session.closed",
+                  reason: "close_requested",
+                  usage: { seconds: 42 },
+                }),
+              10,
+            );
+          if (
+            e.type === "session.input_audio.mute" ||
+            e.type === "session.input_audio.unmute"
+          )
+            setTimeout(
+              () =>
+                this.emit({
+                  type:
+                    e.type === "session.input_audio.mute"
+                      ? "session.input_audio.muted"
+                      : "session.input_audio.unmuted",
+                  client_event_id: e.event_id,
+                }),
+              1,
+            );
+        }
+        emit(e: any) {
+          this.onmessage?.({ data: JSON.stringify(e) });
+        }
+        close() {
+          this.readyState = "closed";
+          this.onclose?.();
+        }
       }
-      emit(e: any) {
-        this.onmessage?.({ data: JSON.stringify(e) });
-      }
-      close() {
-        this.readyState = "closed";
-        this.onclose?.();
-      }
-    }
-    class Peer {
-      iceGatheringState = gathering === "complete" ? "complete" : "gathering";
-      iceConnectionState = "connected";
-      connectionState = "connected";
-      localDescription: any;
-      ontrack: any;
-      onconnectionstatechange: any;
-      oniceconnectionstatechange: any;
-      constructor(config: RTCConfiguration) {
-        w.__peer = this;
-        w.__rtcConfig = config;
-      }
-      addTrack() {}
-      createDataChannel() {
-        w.__channel = new Channel();
-        return w.__channel;
-      }
-      async createOffer() {
-        return {
-          type: "offer",
-          sdp:
-            gathering === "slow"
-              ? "fixture-offer\r\na=candidate:1 1 UDP 2130706431 192.0.2.1 5000 typ host\r\n"
-              : "fixture-offer",
-        };
-      }
-      async setLocalDescription(d: any) {
-        this.localDescription = d;
-      }
-      async setRemoteDescription() {
-        setTimeout(
-          () =>
+      class Peer extends EventTarget {
+        iceGatheringState = gathering === "complete" ? "complete" : "gathering";
+        iceConnectionState = "connected";
+        connectionState = "connected";
+        localDescription: any;
+        ontrack: any;
+        onconnectionstatechange: any;
+        oniceconnectionstatechange: any;
+        constructor(config: RTCConfiguration) {
+          super();
+          w.__peer = this;
+          w.__rtcConfig = config;
+        }
+        addTrack() {}
+        createDataChannel() {
+          w.__channel = new Channel();
+          return w.__channel;
+        }
+        async createOffer() {
+          return {
+            type: "offer",
+            sdp: "fixture-offer\r\n",
+          };
+        }
+        async setLocalDescription(d: any) {
+          this.localDescription = d;
+          if (gathering === "slow")
+            setTimeout(() => this.addCandidate("host"), 100);
+        }
+        addCandidate(type: "host" | "srflx") {
+          this.localDescription.sdp += `a=candidate:1 1 UDP 2130706431 192.0.2.1 5000 typ ${type}\r\n`;
+          this.dispatchEvent(new Event("icecandidate"));
+        }
+        async setRemoteDescription() {
+          setTimeout(() => {
+            if (startDisconnected) {
+              this.iceConnectionState = "disconnected";
+              this.connectionState = "disconnected";
+              this.oniceconnectionstatechange?.();
+              this.onconnectionstatechange?.();
+            }
             w.__channel.emit({
               type: "session.started",
               session: { id: "fixture" },
-            }),
-          10,
-        );
+            });
+          }, 10);
+        }
+        close() {
+          w.__peerClosed = true;
+        }
       }
-      close() {
-        w.__peerClosed = true;
-      }
-      addEventListener() {}
-      removeEventListener() {}
-    }
-    w.RTCPeerConnection = Peer;
-  }, gathering);
+      w.RTCPeerConnection = Peer;
+    },
+    { gathering, startDisconnected },
+  );
 }
 async function speak(page: Page) {
   await page.evaluate((text) => {
@@ -331,16 +344,29 @@ test("temporary ICE disconnect recovers the same conversation and timer", async 
     peer.oniceconnectionstatechange();
   });
   await expect(page.getByRole("status")).toHaveText("Reconnecting");
-  await page.clock.fastForward(5000);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.connectionState = "disconnected";
+    peer.onconnectionstatechange();
+  });
+  // The browser may recover after the old 15-second application cutoff.
+  await page.clock.fastForward(20000);
+  await expect(page.getByRole("status")).toHaveText("Reconnecting");
   await page.evaluate(() => {
     const peer = (window as any).__peer;
     peer.iceConnectionState = "completed";
     peer.oniceconnectionstatechange();
   });
+  await expect(page.getByRole("status")).toHaveText("Reconnecting");
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.connectionState = "connected";
+    peer.onconnectionstatechange();
+  });
   await expect(page.getByRole("status")).toHaveText("Connected");
   await page.clock.fastForward(16000);
   await expect(page.getByRole("status")).toHaveText("Connected");
-  await expect(page.locator(".timer")).toContainText("00:26");
+  await expect(page.locator(".timer")).toContainText("00:41");
   expect(await page.evaluate(() => (window as any).__peerClosed)).toBe(false);
   expect(
     await page.evaluate(
@@ -359,7 +385,7 @@ test("temporary ICE disconnect recovers the same conversation and timer", async 
     page.getByRole("heading", { name: "Your next improvements" }),
   ).toBeVisible();
 });
-for (const failure of ["ice", "peer", "timeout"] as const) {
+for (const failure of ["ice", "peer", "channel"] as const) {
   test(`${failure} connection failure saves captured speech and releases the microphone`, async ({
     page,
   }) => {
@@ -367,24 +393,22 @@ for (const failure of ["ice", "peer", "timeout"] as const) {
     await page.clock.install();
     await start(page);
     await speak(page);
+    await page.evaluate(() => {
+      const peer = (window as any).__peer;
+      peer.iceConnectionState = "disconnected";
+      peer.oniceconnectionstatechange();
+    });
+    await expect(page.getByRole("status")).toHaveText("Reconnecting");
     await page.evaluate((failure) => {
       const peer = (window as any).__peer;
-      if (failure === "peer") peer.connectionState = "failed";
-      else
-        peer.iceConnectionState = failure === "ice" ? "failed" : "disconnected";
-      peer.oniceconnectionstatechange();
-      peer.onconnectionstatechange();
+      if (failure === "peer") {
+        peer.connectionState = "failed";
+        peer.onconnectionstatechange();
+      } else if (failure === "ice") {
+        peer.iceConnectionState = "failed";
+        peer.oniceconnectionstatechange();
+      } else (window as any).__channel.close();
     }, failure);
-    if (failure === "timeout") {
-      await expect(page.getByRole("status")).toHaveText("Reconnecting");
-      await page.clock.fastForward(14000);
-      // Repeated browser notifications must not extend the recovery deadline.
-      await page.evaluate(() =>
-        (window as any).__peer.onconnectionstatechange(),
-      );
-      await expect(page.getByRole("status")).toHaveText("Reconnecting");
-      await page.clock.fastForward(1000);
-    }
     await expect(
       page.getByRole("heading", { name: "Your next improvements" }),
     ).toBeVisible();
@@ -402,11 +426,75 @@ for (const failure of ["ice", "peer", "timeout"] as const) {
     expect(await page.evaluate(() => (window as any).__peerClosed)).toBe(true);
   });
 }
-for (const gathering of ["slow", "empty"] as const) {
+test("session starting during a disconnect starts the timer before recovery", async ({
+  page,
+}) => {
+  await fakeVoice(page, "complete", true);
+  await page.clock.install();
+  await page.goto("/");
+  await page.getByLabel("What role are you preparing for?").fill("Designer");
+  await page.getByRole("button", { name: "Start practicing" }).click();
+  await expect(page.getByRole("status")).toHaveText("Reconnecting");
+  await page.clock.fastForward(5000);
+  await expect(page.locator(".timer")).toContainText("00:05");
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.connectionState = "connected";
+    peer.onconnectionstatechange();
+  });
+  await expect(page.getByRole("status")).toHaveText("Reconnecting");
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.iceConnectionState = "connected";
+    peer.oniceconnectionstatechange();
+  });
+  await expect(page.getByRole("status")).toHaveText("Connected");
+  await page.clock.fastForward(5000);
+  await expect(page.locator(".timer")).toContainText("00:10");
+  await page.getByRole("button", { name: "End & review" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+});
+test("ending while reconnecting saves immediately without waiting for a channel response", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await page.clock.install();
+  await start(page);
+  await speak(page);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.iceConnectionState = "disconnected";
+    peer.oniceconnectionstatechange();
+  });
+  await expect(page.getByRole("status")).toHaveText("Reconnecting");
+  await page.clock.pauseAt(new Date());
+  await page
+    .getByRole("button", { name: "Review answer", exact: true })
+    .click();
+  // No clock advance: the old 12-second data-channel wait would hang here.
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Partial session · This review/)).toBeVisible();
+  await page.getByText("Read your transcript").click();
+  await expect(page.getByText(answer, { exact: true })).toBeVisible();
+});
+for (const gathering of [
+  "slow",
+  "empty",
+  "completed",
+  "srflx",
+  "late",
+] as const) {
   test(`${gathering} ICE gathering handles the deadline without losing available candidates`, async ({
     page,
   }) => {
-    await fakeVoice(page, gathering);
+    await fakeVoice(
+      page,
+      ["empty", "late"].includes(gathering) ? "empty" : "slow",
+    );
     await page.clock.install();
     const offers: string[] = [];
     page.on("request", (request) => {
@@ -424,11 +512,45 @@ for (const gathering of ["slow", "empty"] as const) {
         page.evaluate(() => !!(window as any).__peer?.localDescription),
       )
       .toBe(true);
-    await page.clock.fastForward(10000);
-    if (gathering === "slow") {
+    if (gathering === "empty") {
+      await page.clock.fastForward(10000);
+    } else if (gathering === "late") {
+      await page.clock.fastForward(9000);
+      await page.evaluate(() => (window as any).__peer.addCandidate("host"));
+      await page.clock.fastForward(1000);
+    } else {
+      await page.clock.fastForward(100);
+      expect(offers).toHaveLength(0);
+      if (gathering === "completed") {
+        await page.evaluate(() => {
+          const peer = (window as any).__peer;
+          peer.iceGatheringState = "complete";
+          peer.dispatchEvent(new Event("icegatheringstatechange"));
+        });
+      } else {
+        if (gathering === "srflx") {
+          await page.clock.fastForward(1000);
+          await page.evaluate(() =>
+            (window as any).__peer.addCandidate("srflx"),
+          );
+        }
+        await page.clock.fastForward(gathering === "srflx" ? 1000 : 2000);
+      }
+    }
+    if (gathering !== "empty") {
       await expect(page.getByRole("status")).toHaveText("Connected");
       expect(offers).toHaveLength(1);
       expect(offers[0]).toContain("a=candidate:");
+      if (gathering === "srflx") expect(offers[0]).toContain("typ srflx");
+      // Late gathering events and old timers must not create a second session.
+      await page.evaluate(() => {
+        const peer = (window as any).__peer;
+        peer.addCandidate("srflx");
+        peer.iceGatheringState = "complete";
+        peer.dispatchEvent(new Event("icegatheringstatechange"));
+      });
+      await page.clock.fastForward(10000);
+      expect(offers).toHaveLength(1);
       await page.getByRole("button", { name: "End & review" }).click();
       await expect(
         page.getByRole("heading", { name: "Your next improvements" }),

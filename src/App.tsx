@@ -123,7 +123,7 @@ export default function App() {
   const [elapsed, setElapsed] = useState(0);
   const [deleteId, setDeleteId] = useState<string>();
   const controller = useRef<LiveSession | undefined>(undefined);
-  const startedAt = useRef(0);
+  const [startedAt, setStartedAt] = useState<number>();
   async function refresh() {
     setSessions(await api<SessionSummary[]>("/sessions"));
   }
@@ -161,16 +161,16 @@ export default function App() {
   useEffect(() => {
     if (
       view !== "live" ||
-      !startedAt.current ||
+      startedAt === undefined ||
       !["Connected", "Reconnecting"].includes(state)
     )
       return;
     const timer = setInterval(
-      () => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)),
+      () => setElapsed(Math.floor((Date.now() - startedAt) / 1000)),
       1000,
     );
     return () => clearInterval(timer);
-  }, [view, state]);
+  }, [view, state, startedAt]);
   async function generateFeedback(s: PracticeSession) {
     setReviewing(true);
     try {
@@ -190,17 +190,14 @@ export default function App() {
     setFragments([]);
     setMuted(false);
     setElapsed(0);
-    startedAt.current = 0;
+    setStartedAt(undefined);
     setState("Connecting");
     setView("live");
     setRecord(undefined);
     setShowCaptions(false);
     const live = new LiveSession({
-      state: (s) => {
-        setState(s);
-        if (s === "Connected" && !startedAt.current)
-          startedAt.current = Date.now();
-      },
+      state: setState,
+      started: () => setStartedAt(Date.now()),
       record: setRecord,
       fragments: setFragments,
       level: setLevel,
