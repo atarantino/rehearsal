@@ -9,6 +9,7 @@ import {
 } from "../shared/types";
 type Handlers = {
   state: (s: string) => void;
+  started: () => void;
   fragments: (f: Fragment[]) => void;
   level: (n: number) => void;
   error: (s: string) => void;
@@ -24,6 +25,7 @@ export class LiveSession {
   private animation = 0;
   private timer?: ReturnType<typeof setTimeout>;
   private setupTimer?: ReturnType<typeof setTimeout>;
+  private reconnecting = false;
   private saveTimer?: ReturnType<typeof setInterval>;
   private record?: PracticeSession;
   private fragments: Fragment[] = [];
@@ -73,7 +75,9 @@ export class LiveSession {
         this.animation = requestAnimationFrame(measure);
       };
       measure();
-      const peer = (this.peer = new RTCPeerConnection());
+      const peer = (this.peer = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+      }));
       peer.ontrack = (e) => {
         this.audio.srcObject = new MediaStream([e.track]);
         this.audio
@@ -96,40 +100,44 @@ export class LiveSession {
         }
       };
       channel.onclose = () => {
-        if (!this.disposed && !this.ending && this.record) {
-          this.h.error(
-            "The voice connection dropped. Your available transcript has been kept.",
-          );
-          void this.end("connection_lost");
-        }
+        this.connectionLost();
       };
-      peer.onconnectionstatechange = () => {
-        if (peer.connectionState === "failed" && !this.disposed) {
-          this.h.error(
-            "Connection lost. Check your network before starting another attempt.",
-          );
-          void this.end("connection_lost");
-        }
-      };
+      peer.onconnectionstatechange = () => this.connectionChanged();
+      peer.oniceconnectionstatechange = () => this.connectionChanged();
       await peer.setLocalDescription(await peer.createOffer());
       if (peer.iceGatheringState !== "complete")
         await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
+          let candidateTimer: ReturnType<typeof setTimeout> | undefined;
+          const finish = (error?: Error) => {
+            clearTimeout(timeout);
+            clearTimeout(candidateTimer);
             peer.removeEventListener("icegatheringstatechange", onState);
-            reject(
-              new Error(
-                "Microphone connection timed out. Check your network and retry.",
-              ),
+            peer.removeEventListener("icecandidate", onState);
+            if (error) reject(error);
+            else resolve();
+          };
+          const hasCandidates = () =>
+            /^a=candidate:/m.test(peer.localDescription?.sdp || "");
+          const timeout = setTimeout(() => {
+            finish(
+              hasCandidates()
+                ? undefined
+                : new Error(
+                    "Microphone connection timed out. Check your network and retry.",
+                  ),
             );
           }, 10000);
           function onState() {
             if (peer.iceGatheringState === "complete") {
-              clearTimeout(timeout);
-              peer.removeEventListener("icegatheringstatechange", onState);
-              resolve();
+              finish();
+            } else if (hasCandidates() && candidateTimer === undefined) {
+              // Give STUN a short opportunity after the first candidate. The
+              // API takes one offer, so include all candidates gathered by then.
+              candidateTimer = setTimeout(() => finish(), 2000);
             }
           }
           peer.addEventListener("icegatheringstatechange", onState);
+          peer.addEventListener("icecandidate", onState);
           onState();
         });
       const result = await api<{ record: PracticeSession; sdp: string }>(
@@ -154,6 +162,8 @@ export class LiveSession {
         }
       }, 20000);
       await peer.setRemoteDescription({ type: "answer", sdp: result.sdp });
+      this.connectionChanged();
+      if (this.disposed || this.ending) return;
       this.timer = setTimeout(
         () => {
           this.h.error("This practice session reached its time limit.");
@@ -176,11 +186,44 @@ export class LiveSession {
       );
     }
   }
+  private connectionLost() {
+    if (this.disposed || this.ending || !this.record) return;
+    this.h.error(
+      "The voice connection dropped and could not recover. Your captured transcript will be saved for review. Try another network if this keeps happening.",
+    );
+    void this.end("connection_lost");
+  }
+  private connectionChanged() {
+    if (this.disposed || this.ending || !this.peer) return;
+    const { connectionState, iceConnectionState } = this.peer;
+    if (connectionState === "failed" || iceConnectionState === "failed") {
+      // Restarting ICE requires another SDP exchange; the current API only
+      // negotiates when creating a session. Preserve this attempt on failure.
+      this.connectionLost();
+    } else if (
+      connectionState === "disconnected" ||
+      iceConnectionState === "disconnected"
+    ) {
+      // A disconnected transport can still recover. Leave failure detection to
+      // the browser; the session's existing hard time limit still applies.
+      this.reconnecting = true;
+      this.h.state("Reconnecting");
+    } else if (
+      connectionState === "connected" &&
+      (iceConnectionState === "connected" || iceConnectionState === "completed")
+    ) {
+      this.reconnecting = false;
+      if (this.started) this.h.state("Connected");
+    }
+  }
   private event(e: any) {
+    if (this.disposed) return;
     if (e.type === "session.started") {
+      if (this.started || this.ending) return;
       this.started = true;
       clearTimeout(this.setupTimer);
-      this.h.state("Connected");
+      this.h.started();
+      this.h.state(this.reconnecting ? "Reconnecting" : "Connected");
       this.send({
         type: "session.instructions.append",
         event_id: crypto.randomUUID(),
@@ -279,13 +322,20 @@ export class LiveSession {
     return this.ending;
   }
   private async finish(reason: string) {
+    if (this.reconnecting && reason === "close_requested")
+      reason = "connection_lost";
     this.h.state("Finishing");
     clearTimeout(this.timer);
     clearTimeout(this.setupTimer);
     clearInterval(this.saveTimer);
     this.mic?.getAudioTracks().forEach((t) => (t.enabled = false));
     this.audio.muted = true;
-    if (!this.finalEvent && this.channel?.readyState === "open")
+    if (
+      reason !== "connection_lost" &&
+      !this.reconnecting &&
+      !this.finalEvent &&
+      this.channel?.readyState === "open"
+    )
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(resolve, 12000);
         this.finalWait = () => {

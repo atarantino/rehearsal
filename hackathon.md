@@ -12,7 +12,7 @@
 - **Auth:** Convex Auth
 - **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; coaching configures openai/gpt-5.6-terra through the Convex AI Gateway with direct OpenAI fallback when the gateway is unavailable; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-14T02:22:57.955Z
+- **Last updated:** 2026-09-14T02:31:57Z
 
 ## Log
 
@@ -110,6 +110,13 @@ Added session/opportunity lifecycle logs, failure scenarios, screenshots, traces
 Fixed mobile Sign out visibility and prevented QA artifacts from reloading the interactive app. Rebased onto the preparation branch while preserving project coaching dependencies, UI fixtures, and tests (`src/style.css`, `vite.config.ts`, `tests/test-server.ts`, `playwright.config.ts`).
 Local verification of this commit passed the build, 21 unit/integration tests, 16 Convex tests, 11 Express/coaching browser tests, and 6 Convex browser tests; the saved report completed at 2026-09-14T02:22:57.955Z. These are prior run results, not checks rerun for this log update.
 The Convex browser suite uses a real isolated local backend with synthetic provider responses and WebRTC. No public deployment or paid live-service check was performed for this milestone; CI success is not established by the local report.
+
+### 2026-09-14 - b29dbc8
+Improved WebRTC disconnect handling: show Reconnecting while the browser can recover, preserve elapsed time, and save captured speech for review after failure (`src/live.ts`, `src/App.tsx`).
+Added Cloudflare STUN with a two-second fallback after the first candidate; ending a disconnected session skips the channel-response wait. Claude Opus review informed these refinements (`9e24f03`, `eddbb52`).
+Merged the preparation branch into PR #5, preserving project coaching and moving the ICE scenarios into the shared voice fixture with Convex-compatible SDP and browser diagnostics (`tests/helpers/voice.ts`, `tests/browser.spec.ts`).
+Full local verification of the resolved tree passed: build, 21 unit/integration tests, 16 Convex tests, 22 Express/coaching browser tests, and 6 Convex app browser tests. The saved report completed at 2026-09-14T02:31:41.861Z, before the merge commit; these checks were not rerun for this log update.
+The Convex suite used an isolated local backend with fixture providers and WebRTC. Real-network recovery remains unverified; this milestone did not deploy the fixes or run live-service checks.
 
 ## Submission readiness
 

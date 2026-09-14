@@ -125,7 +125,7 @@ export default function App() {
   const [elapsed, setElapsed] = useState(0);
   const [deleteId, setDeleteId] = useState<string>();
   const controller = useRef<LiveSession | undefined>(undefined);
-  const startedAt = useRef(0);
+  const [startedAt, setStartedAt] = useState<number>();
   async function refresh() {
     setSessions(await api<SessionSummary[]>("/sessions"));
   }
@@ -161,13 +161,18 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    if (view !== "live" || state !== "Connected") return;
+    if (
+      view !== "live" ||
+      startedAt === undefined ||
+      !["Connected", "Reconnecting"].includes(state)
+    )
+      return;
     const timer = setInterval(
-      () => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)),
+      () => setElapsed(Math.floor((Date.now() - startedAt) / 1000)),
       1000,
     );
     return () => clearInterval(timer);
-  }, [view, state]);
+  }, [view, state, startedAt]);
   async function generateFeedback(s: PracticeSession) {
     setReviewing(true);
     try {
@@ -187,15 +192,14 @@ export default function App() {
     setFragments([]);
     setMuted(false);
     setElapsed(0);
+    setStartedAt(undefined);
     setState("Connecting");
     setView("live");
     setRecord(undefined);
     setShowCaptions(false);
     const live = new LiveSession({
-      state: (s) => {
-        setState(s);
-        if (s === "Connected") startedAt.current = Date.now();
-      },
+      state: setState,
+      started: () => setStartedAt(Date.now()),
       record: setRecord,
       fragments: setFragments,
       level: setLevel,
@@ -634,13 +638,15 @@ export default function App() {
                 <h2>
                   {state === "Connecting"
                     ? "Making room for your voice…"
-                    : state === "Finishing"
-                      ? "Saving your conversation…"
-                      : state === "Save interrupted"
-                        ? "Your answer is still here."
-                        : muted
-                          ? "Take your time."
-                          : "You have the floor."}
+                    : state === "Reconnecting"
+                      ? "Waiting for the connection to return…"
+                      : state === "Finishing"
+                        ? "Saving your conversation…"
+                        : state === "Save interrupted"
+                          ? "Your answer is still here."
+                          : muted
+                            ? "Take your time."
+                            : "You have the floor."}
                 </h2>
                 <p>
                   {state === "Connected"
