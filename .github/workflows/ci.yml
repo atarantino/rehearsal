@@ -1,0 +1,91 @@
+name: CI and deploy
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize main runs, including their checks, without interrupting a deployment.
+concurrency:
+  group: rehearsal-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Save browser failure traces
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-failure-traces
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  deploy:
+    name: Deploy production
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://acoustic-cuttlefish-868.convex.site
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Skip superseded commits and old reruns
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [[ "$latest" == "$GITHUB_SHA" ]]; then
+            echo 'deploy=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Skipped: this commit is no longer the tip of main.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build and publish frontend and Convex backend
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          VITE_LOCAL_MODE: 'false'
+        run: |
+          if [[ "$CONVEX_DEPLOY_KEY" != prod:acoustic-cuttlefish-868\|?* ]]; then
+            echo '::error::Set CONVEX_DEPLOY_KEY to a production deploy key for acoustic-cuttlefish-868 in GitHub Actions secrets.'
+            exit 1
+          fi
+          npm run deploy
+      - name: Check the published frontend
+        if: steps.current.outputs.deploy == 'true'
+        run: |
+          curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 30 \
+            "https://acoustic-cuttlefish-868.convex.site/?release=$GITHUB_SHA" -o /tmp/live-index.html
+          cmp dist/index.html /tmp/live-index.html
+          echo "Published $GITHUB_SHA to https://acoustic-cuttlefish-868.convex.site" >> "$GITHUB_STEP_SUMMARY"
