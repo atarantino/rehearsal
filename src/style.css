@@ -658,6 +658,10 @@ summary::-webkit-details-marker {
   margin-bottom: 12px;
 }
 .conversation-stage {
+  --voice-user: 0;
+  --voice-assistant: 0;
+  --voice-level: 0;
+  --voice-color: #8799b9;
   padding: 32px 20px 22px;
   margin: 35px 0 22px;
   border: 1px solid #e0e7f4;
@@ -681,8 +685,58 @@ summary::-webkit-details-marker {
 .connection-status.connected i {
   background: #6d9d8e;
 }
+.conversation-stage[data-speaker="assistant"] {
+  --voice-level: var(--voice-assistant);
+  --voice-color: #697fd2;
+}
+.conversation-stage[data-speaker="user"] {
+  --voice-level: var(--voice-user);
+  --voice-color: #4d978d;
+}
+.conversation-stage[data-muted="true"] {
+  --voice-user: 0 !important;
+}
+.voice-visualizer {
+  position: relative;
+  height: 155px;
+  display: grid;
+  place-items: center;
+}
+.voice-halo {
+  position: absolute;
+  width: 180px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, currentColor, transparent 70%);
+  color: var(--voice-color);
+  opacity: calc(0.05 + var(--voice-level) * 0.16);
+  transform: scale(calc(0.85 + var(--voice-level) * 0.35));
+  transition:
+    transform 100ms linear,
+    opacity 100ms linear,
+    color 250ms;
+}
 .conversation-stage .wave {
-  height: 143px;
+  position: relative;
+  height: 140px;
+  gap: 5px;
+}
+.conversation-stage .wave i {
+  height: 110px !important;
+  width: 5px;
+  background: var(--voice-color);
+  transform: scaleY(calc(0.07 + var(--voice-level) * var(--bar-weight)));
+  transition:
+    transform 100ms linear,
+    background-color 250ms;
+}
+.conversation-stage[data-speaker="idle"] .wave {
+  animation: voice-rest 3s ease-in-out infinite;
+}
+@keyframes voice-rest {
+  50% {
+    opacity: 0.5;
+  }
 }
 .conversation-stage h2 {
   color: #536a95;
@@ -714,6 +768,9 @@ summary::-webkit-details-marker {
   display: block;
   background: #8195c9;
   height: 100%;
+  transform: scaleX(var(--voice-user));
+  transform-origin: left;
+  transition: transform 100ms linear;
 }
 .live-controls {
   display: flex;
@@ -987,6 +1044,7 @@ summary::-webkit-details-marker {
   margin: 14px 0 25px;
 }
 .loading-orbit {
+  position: relative;
   border-radius: 50%;
   background: #eef2fd;
   width: 60px;
@@ -994,13 +1052,77 @@ summary::-webkit-details-marker {
   display: grid;
   place-items: center;
   color: #8193d3;
-  margin: 0 auto 25px;
-  animation: breathe 2s ease-in-out infinite;
+  margin: 10px auto 35px;
 }
-@keyframes breathe {
-  50% {
+.loading-orbit::before,
+.loading-orbit::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border: 1.5px solid #e7ecf7;
+  border-radius: 50%;
+}
+.loading-orbit::after {
+  border-color: #8193d3 transparent transparent;
+  animation: spin 2.4s linear infinite;
+}
+.review-detail-hints {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: #61759e;
+  font-size: 11px;
+}
+.review-detail-hints span {
+  animation: detail-glow 4.5s ease-in-out infinite;
+}
+.review-detail-hints span:nth-of-type(2) {
+  animation-delay: -3s;
+}
+.review-detail-hints span:nth-of-type(3) {
+  animation-delay: -1.5s;
+}
+.review-detail-hints > i {
+  width: 3px;
+  height: 3px;
+  background: #b6c2d8;
+  border-radius: 50%;
+}
+.review-processing-track {
+  width: min(220px, 100%);
+  height: 3px;
+  overflow: hidden;
+  margin: 25px auto 0;
+  border-radius: 10px;
+  background: #eef2fa;
+}
+.review-processing-track i {
+  display: block;
+  width: 45%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, #8193d3, transparent);
+  animation: detail-sweep 2.4s ease-in-out infinite;
+}
+@keyframes detail-glow {
+  0%,
+  65%,
+  100% {
     opacity: 0.5;
-    transform: scale(0.93);
+  }
+  20%,
+  35% {
+    opacity: 1;
+  }
+}
+@keyframes detail-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(325%);
   }
 }
 .history-heading {
@@ -1402,6 +1524,23 @@ summary::-webkit-details-marker {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .conversation-stage .wave i {
+    transform: scaleY(calc(0.12 + var(--bar-weight) * 0.3));
+  }
+  .voice-halo {
+    transform: none;
+    opacity: 0.1;
+  }
+  .microphone-meter i {
+    transform: none;
+    opacity: 0.5;
+  }
+  .conversation-stage[data-muted="true"] .microphone-meter i {
+    opacity: 0;
+  }
+  .review-processing-track i {
+    width: 100%;
+  }
   *,
   *::before,
   *::after {
