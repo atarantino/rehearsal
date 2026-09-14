@@ -7,12 +7,12 @@
 - **Repo:** https://github.com/atarantino/rehearsal
 - **Frontend:** Convex static hosting
 - **Convex deployment:** https://acoustic-cuttlefish-868.convex.cloud
-- **Components:** Convex Auth core, passkey and username; workflow; rate-limiter; static-hosting
+- **Components:** @convex-dev/auth (core, passkey, username), @convex-dev/workflow, @convex-dev/rate-limiter, @convex-dev/static-hosting
 - **Convex features:** schema, indexes, queries, mutations, actions, HTTP actions, realtime queries, scheduled functions, file storage
 - **Auth:** Convex Auth
 - **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-14T01:15:40Z
+- **Last updated:** 2026-09-14T16:33:30Z
 
 ## Log
 
@@ -95,6 +95,58 @@ The draft uses synthetic examples, accelerated playback, and AI narration; the
 repeated answer verifies an honest unchanged comparison. It does not claim a human
 microphone check or improved second answer (`public/rehearsal-demo.mp4`).
 
+### 2026-09-14 - c8c6550: resume release; CI branch 336cef3
+Shipped optional default and opportunity-specific resumes, with paste, PDF, and Word
+`.docx` import for review before saving (`src/Resume.tsx`, `src/resume.worker.ts`).
+Parsing runs in browser workers without OCR; original files are not uploaded or retained.
+Convex ownership checks and rate-limited mutations save text, and sessions resolve their
+resume context server-side so retries retain the original snapshot (`convex/resumes.ts`,
+`convex/sessions.ts`). Switching resume modes preserves custom text until explicit deletion.
+
+Reviewed with Claude Opus and fixed draft retention, opportunity selection, and deletion
+behavior. Build, 17 unit/integration tests, 17 Convex tests, and 11 browser tests passed;
+the authenticated local resume regression check also passed (`scripts/check-resumes.mjs`).
+Manually deployed merged main commit `c8c6550` to production using Convex static hosting.
+The live HTML matched the build; production checks passed for passkey signup, PDF/DOCX
+import, saving across reload, and removing the synthetic resume. These are checks from
+this build session, not production calls made for this log update.
+
+Prepared automatic deployment after successful main checks in [PR #8](https://github.com/atarantino/rehearsal/pull/8)
+(`.github/workflows/ci.yml` on `ci/deploy-main`, latest commit `336cef3`). GitHub CI passed.
+The workflow serializes releases and checks the published HTML, but remains unmerged;
+production deploy-key setup and activation are deferred. The resume release was manual.
+
+### 2026-09-14 - 3fb1ebd: focused practice wording; working tree preparation changes
+Renamed Coached practice to Focused practice and clarified one interview question with
+up to two follow-ups, feedback, and a retry; mock copy now describes several questions
+(`src/App.tsx`, `README.md`, `docs/local-development.md`). Consulted Opus on the wording
+and approach. Opened [PR #9](https://github.com/atarantino/rehearsal/pull/9); behavior is unchanged.
+The branch build and all 11 browser tests passed in this session; no deployment was run.
+
+Uncommitted preparation changes omit research bodies from list responses, avoid duplicate
+job evidence in brief prompts, and cap concurrent supplemental scrapes at two
+(`convex/preparation.ts`, `convex/research.ts`). Added tests cover ownership, citations,
+deduplication, and scrape ordering (`tests/backend.convex.ts`); not rerun in this log update.
+Preserved the resume-release and CI history from the existing log at `5dfa935`.
+
+### 2026-09-14 - working tree: voice disconnect reproduction and release
+Reproduced the mid-answer cutoff with sustained synthetic speech in Firefox 155;
+Chromium sustained two minutes, including a forced Convex WebSocket reconnect.
+Consulted Opus and compared Firefox transport logs with Mozilla's ICE-lite bug;
+Chrome is the verified workaround, and Firefox 156 remains unverified in this app.
+
+Deployed an affected-Firefox notice, temporary-disconnect warning and recovery grace,
+prompt transcript saving, preserved connection-loss reasons, and cleanup diagnostics
+(`src/live.ts`, `src/App.tsx`, `convex/sessions.ts`, `convex/voice.ts`). Applied the
+changes to deployed resume release `c8c6550` so the older working-tree base would not
+remove resume support. All 51 release tests and the production build passed; hosted
+HTML and JavaScript matched the release artifacts. Longer reproduction tooling and
+limitations are recorded in `scripts/reproduce-voice.mjs` and `docs/voice-reliability.md`.
+Post-deployment sign-in, resume-control, and Firefox-notice checks passed. The deployed
+Chromium voice call stayed connected for 120 seconds through the forced Convex
+reconnect and received transcript events through 119.8 seconds.
+These changes improve failure handling; they cannot recover speech never transcribed.
+
 ## Submission readiness
 
 Checked against the [official requirements](https://www.convex.dev/hackathons/all-gas).
@@ -103,7 +155,7 @@ Checked against the [official requirements](https://www.convex.dev/hackathons/al
 - [x] Substantive Convex backend, authentication, workflows, and live updates.
 - [x] Working OpenAI, Firecrawl, and AgentMail product integrations.
 - [x] Public convex.site app accessible without an invite.
-- [x] Source published on the public `hackathon/convex-preparation` branch for review.
+- [x] Hosted preparation and resume source merged into public `main` (PRs #1 and #7).
 - [x] [Hosted demo draft, 2 minutes 11 seconds](https://acoustic-cuttlefish-868.convex.site/demo.html).
 - [ ] Confirm Luma registration and personal eligibility.
 - [ ] Share on X or LinkedIn, tagging all four sponsors.

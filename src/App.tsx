@@ -31,6 +31,9 @@ import { Preparation } from "./Preparation";
 import { SignOut } from "./Auth";
 import { LiveSession } from "./live";
 import { captions, clock } from "./transcript";
+// Mozilla bug 1034964 fixes ICE-lite nomination in Firefox 156.
+const firefoxVersion = Number(navigator.userAgent.match(/Firefox\/(\d+)/)?.[1]);
+const affectedFirefox = firefoxVersion > 0 && firefoxVersion < 156;
 const initial: SessionConfig = {
   mode: cloudEnabled ? "coached" : "mock",
   role: "",
@@ -185,6 +188,7 @@ export default function App() {
     setFragments([]);
     setMuted(false);
     setElapsed(0);
+    startedAt.current = 0;
     setState("Connecting");
     setView("live");
     setRecord(undefined);
@@ -192,7 +196,8 @@ export default function App() {
     const live = new LiveSession({
       state: (s) => {
         setState(s);
-        if (s === "Connected") startedAt.current = Date.now();
+        if (s === "Connected" && !startedAt.current)
+          startedAt.current = Date.now();
       },
       record: setRecord,
       fragments: setFragments,
@@ -536,6 +541,13 @@ export default function App() {
                       again later.
                     </p>
                   )}
+                  {affectedFirefox && (
+                    <p className="inline-notice" role="note">
+                      This Firefox version can disconnect voice practice
+                      mid-answer. Use Chrome for your next attempt, or update to
+                      Firefox 156 or later when available.
+                    </p>
+                  )}
                   <button
                     className="primary start-button"
                     disabled={busy || !configured}
@@ -636,9 +648,11 @@ export default function App() {
                       ? "Saving your conversation…"
                       : state === "Save interrupted"
                         ? "Your answer is still here."
-                        : muted
-                          ? "Take your time."
-                          : "You have the floor."}
+                        : state.startsWith("Connection interrupted")
+                          ? "Pause for a moment."
+                          : muted
+                            ? "Take your time."
+                            : "You have the floor."}
                 </h2>
                 <p>
                   {state === "Connected"

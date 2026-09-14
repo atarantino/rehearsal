@@ -34,6 +34,9 @@ export class LiveSession {
   private ending?: Promise<void>;
   private disposed = false;
   private started = false;
+  private interrupted = false;
+  private disconnectTimer?: ReturnType<typeof setTimeout>;
+  private endReason = "close_requested";
   private muteAck?: {
     id: string;
     resolve: () => void;
@@ -73,7 +76,9 @@ export class LiveSession {
         this.animation = requestAnimationFrame(measure);
       };
       measure();
-      const peer = (this.peer = new RTCPeerConnection());
+      const peer = (this.peer = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+      }));
       peer.ontrack = (e) => {
         this.audio.srcObject = new MediaStream([e.track]);
         this.audio
@@ -104,18 +109,20 @@ export class LiveSession {
         }
       };
       peer.onconnectionstatechange = () => {
-        if (peer.connectionState === "failed" && !this.disposed) {
-          this.h.error(
-            "Connection lost. Check your network before starting another attempt.",
-          );
-          void this.end("connection_lost");
-        }
+        this.connectionChanged();
       };
+      peer.oniceconnectionstatechange = () => this.connectionChanged();
       await peer.setLocalDescription(await peer.createOffer());
       if (peer.iceGatheringState !== "complete")
         await new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(() => {
             peer.removeEventListener("icegatheringstatechange", onState);
+            // STUN may be blocked even when direct connectivity to the voice
+            // service works. Offer the candidates already gathered in that case.
+            if (peer.localDescription?.sdp.includes("a=candidate:")) {
+              resolve();
+              return;
+            }
             reject(
               new Error(
                 "Microphone connection timed out. Check your network and retry.",
@@ -153,7 +160,10 @@ export class LiveSession {
           void this.end("startup_timeout");
         }
       }, 20000);
-      await peer.setRemoteDescription({ type: "answer", sdp: result.sdp });
+      await peer.setRemoteDescription({
+        type: "answer",
+        sdp: result.sdp,
+      });
       this.timer = setTimeout(
         () => {
           this.h.error("This practice session reached its time limit.");
@@ -175,6 +185,49 @@ export class LiveSession {
               : "The voice connection could not start.",
       );
     }
+  }
+  private connectionChanged() {
+    const peer = this.peer;
+    if (!peer || this.disposed || this.ending) return;
+    console.info("Voice connection state", {
+      at: new Date().toISOString(),
+      sessionId: this.record?.id,
+      connection: peer.connectionState,
+      ice: peer.iceConnectionState,
+      channel: this.channel?.readyState,
+      lastTranscriptMs: this.fragments.at(-1)?.end_ms ?? 0,
+    });
+    if (
+      peer.connectionState === "failed" ||
+      peer.iceConnectionState === "failed"
+    ) {
+      this.connectionLost();
+    } else if (
+      peer.connectionState === "disconnected" ||
+      peer.iceConnectionState === "disconnected"
+    ) {
+      if (this.interrupted) return;
+      this.interrupted = true;
+      this.h.state("Connection interrupted — pause speaking");
+      void this.flush().catch(() => {});
+      // A disconnected ICE transport may recover on its own. Do not close it
+      // immediately, or claim to be recording speech while it cannot deliver it.
+      this.disconnectTimer = setTimeout(() => this.connectionLost(), 15000);
+    } else if (
+      peer.connectionState === "connected" &&
+      ["connected", "completed"].includes(peer.iceConnectionState)
+    ) {
+      clearTimeout(this.disconnectTimer);
+      if (this.interrupted && this.started) this.h.state("Connected");
+      this.interrupted = false;
+    }
+  }
+  private connectionLost() {
+    if (this.disposed || this.ending) return;
+    this.h.error(
+      "The voice connection dropped. Your received transcript has been kept, but speech during the interruption may be missing.",
+    );
+    void this.end("connection_lost");
   }
   private event(e: any) {
     if (e.type === "session.started") {
@@ -275,6 +328,7 @@ export class LiveSession {
   }
   end(reason = "close_requested"): Promise<void> {
     if (this.ending) return this.ending;
+    this.endReason = reason;
     this.ending = this.finish(reason);
     return this.ending;
   }
@@ -283,9 +337,15 @@ export class LiveSession {
     clearTimeout(this.timer);
     clearTimeout(this.setupTimer);
     clearInterval(this.saveTimer);
+    clearTimeout(this.disconnectTimer);
     this.mic?.getAudioTracks().forEach((t) => (t.enabled = false));
     this.audio.muted = true;
-    if (!this.finalEvent && this.channel?.readyState === "open")
+    // An ICE failure can leave readyState="open" on a dead data channel.
+    if (
+      reason !== "connection_lost" &&
+      !this.finalEvent &&
+      this.channel?.readyState === "open"
+    )
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(resolve, 12000);
         this.finalWait = () => {
@@ -297,12 +357,17 @@ export class LiveSession {
     try {
       if (!this.record) return;
       let record: PracticeSession | undefined;
+      // Save in parallel with provider cleanup, so a slow hangup cannot hold
+      // the pending transcript hostage. flush retains failed batches for retry.
+      const saved = this.flush();
+      void saved.catch(() => {});
       if (!this.finalEvent)
         record = await api<PracticeSession>(
           `/sessions/${this.record.id}/close`,
           {},
         ).catch(() => undefined);
       this.cleanup();
+      await saved;
       await this.flush();
       record = await api<PracticeSession>(
         `/sessions/${this.record.id}/finalize`,
@@ -332,7 +397,10 @@ export class LiveSession {
       `/sessions/${this.record.id}/finalize`,
       {
         confirmed: !!this.finalEvent,
-        reason: this.finalEvent?.reason || "connection_lost",
+        reason:
+          this.endReason !== "close_requested"
+            ? this.endReason
+            : this.finalEvent?.reason || "finalization_timeout",
         seconds: this.finalEvent?.usage?.seconds,
       },
     );
@@ -344,6 +412,7 @@ export class LiveSession {
     clearTimeout(this.timer);
     clearTimeout(this.setupTimer);
     clearInterval(this.saveTimer);
+    clearTimeout(this.disconnectTimer);
     cancelAnimationFrame(this.animation);
     if (this.muteAck) {
       clearTimeout(this.muteAck.timer);

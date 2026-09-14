@@ -57,6 +57,12 @@ async function fakeVoice(page: Page) {
     class Peer {
       iceGatheringState = "complete";
       connectionState = "connected";
+      iceConnectionState = "connected";
+      oniceconnectionstatechange: any;
+      constructor(configuration: RTCConfiguration) {
+        w.__peer = this;
+        w.__iceServers = configuration.iceServers;
+      }
       localDescription: any;
       ontrack: any;
       onconnectionstatechange: any;
@@ -118,7 +124,9 @@ async function speak(page: Page) {
 async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await page.goto("/");
   if (mode === "mock")
-    await page.getByRole("button", { name: /Mock interview A real conversation/ }).click();
+    await page
+      .getByRole("button", { name: /Mock interview A real conversation/ })
+      .click();
   if (mode === "coached")
     await page
       .getByRole("button", { name: /Coached practice One question/ })
@@ -128,6 +136,25 @@ async function start(page: Page, mode: "mock" | "coached" = "coached") {
     .fill("Product manager");
   await page.getByRole("button", { name: "Start practicing" }).click();
   await expect(page.getByRole("status")).toHaveText("Connected");
+}
+
+for (const version of [155, 156]) {
+  test(`Firefox ${version} gets the appropriate voice compatibility notice`, async ({
+    page,
+  }) => {
+    await page.addInitScript((version) => {
+      Object.defineProperty(navigator, "userAgent", {
+        value: `Mozilla/5.0 Gecko/20100101 Firefox/${version}.0`,
+        configurable: true,
+      });
+    }, version);
+    await page.goto("/");
+    const notice = page
+      .getByRole("note")
+      .filter({ hasText: "disconnect voice practice" });
+    if (version < 156) await expect(notice).toBeVisible();
+    else await expect(notice).toHaveCount(0);
+  });
 }
 
 test("setup is usable at desktop and mobile widths", async ({ page }) => {
@@ -295,6 +322,91 @@ test("connection loss retains the partial transcript for review", async ({
   ).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("connection dropped");
   await expect(page.getByText(/Partial session · This review/)).toBeVisible();
+});
+test("a temporary ICE disconnect warns without ending the attempt and recovers", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  await speak(page);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.iceConnectionState = "disconnected";
+    peer.oniceconnectionstatechange?.();
+  });
+  await expect(page.getByRole("status")).toHaveText(
+    "Connection interrupted — pause speaking",
+  );
+  expect(
+    await page.evaluate(() =>
+      (window as any).__tracks.every(
+        (t: MediaStreamTrack) => t.readyState === "live",
+      ),
+    ),
+  ).toBe(true);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.iceConnectionState = "connected";
+    peer.oniceconnectionstatechange?.();
+  });
+  await expect(page.getByRole("status")).toHaveText("Connected");
+  await page
+    .getByRole("button", { name: "Review answer", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+});
+test("failed ICE saves promptly even when the data channel still claims to be open", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  await speak(page);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.connectionState = "failed";
+    peer.iceConnectionState = "failed";
+    peer.onconnectionstatechange();
+  });
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      (window as any).__sent.some((e: any) => e.type === "session.close"),
+    ),
+  ).toBe(false);
+  await page.getByText("Read your transcript").click();
+  await expect(page.getByText(answer, { exact: true })).toBeVisible();
+  await expect(page.getByText(/Partial session · This review/)).toBeVisible();
+});
+test("an unreachable STUN server does not discard usable gathered candidates", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await page.addInitScript(() => {
+    const OriginalPeer = (window as any).RTCPeerConnection;
+    (window as any).RTCPeerConnection = class extends OriginalPeer {
+      iceGatheringState = "gathering";
+      async createOffer() {
+        return { type: "offer", sdp: "fixture-offer\r\na=candidate:fixture" };
+      }
+    };
+  });
+  await page.clock.install();
+  await page.goto("/");
+  await page.getByLabel("What role are you preparing for?").fill("Designer");
+  await page.getByRole("button", { name: "Start practicing" }).click();
+  await expect
+    .poll(() => page.evaluate(() => !!(window as any).__peer?.localDescription))
+    .toBe(true);
+  await page.clock.fastForward(10000);
+  await expect(page.getByRole("status")).toHaveText("Connected");
+  await page.getByRole("button", { name: "End & review" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
 });
 test("coached hard limit ends the voice session even without clicking Review", async ({
   page,

@@ -6,6 +6,7 @@ import { api, internal } from "../convex/_generated/api";
 import { publicUrl } from "../shared/preparation";
 import { verifyAgentMailWebhook } from "@agentmail/convex";
 import { Webhook } from "svix";
+import { FirecrawlClient } from "@firecrawl/firecrawl-convex";
 const modules = import.meta.glob("../convex/**/*.ts");
 async function setup() {
   const t = convexTest(schema, modules);
@@ -37,7 +38,12 @@ const fragment = {
   start_ms: 0,
   end_ms: 1000,
 };
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 describe("private practice", () => {
   it("rejects unauthenticated access", async () => {
     const { t } = await setup();
@@ -141,6 +147,34 @@ describe("private practice", () => {
     ).toBe(false);
     expect((await a.query(api.sessions.get, { id })).status).toBe("partial");
   });
+  it("preserves a connection failure when provider cleanup closed the row first", async () => {
+    const { a } = await setup();
+    const id = await a.mutation(internal.sessions.reserve, {
+      config,
+      requestId: "lost",
+    });
+    await a.mutation(internal.sessions.markClosed, {
+      id,
+      reason: "close_requested",
+    });
+    const before = await a.query(api.sessions.get, { id });
+    const result = await a.mutation(api.sessions.finalize, {
+      id,
+      confirmed: false,
+      reason: "connection_lost",
+    });
+    expect(result.status).toBe("partial");
+    expect(result.closeReason).toBe("connection_lost");
+    expect(result.endedAt).toBe(before.endedAt);
+    await a.mutation(api.sessions.finalize, {
+      id,
+      confirmed: true,
+      reason: "close_requested",
+    });
+    expect((await a.query(api.sessions.get, { id })).closeReason).toBe(
+      "connection_lost",
+    );
+  });
   it("ignores an obsolete feedback worker", async () => {
     const { a } = await setup();
     const id = await a.mutation(internal.sessions.reserve, {
@@ -216,6 +250,204 @@ describe("private practice", () => {
     expect(await t.run((ctx) => ctx.db.query("fragments").take(10))).toEqual(
       [],
     );
+  });
+});
+describe("preparation efficiency", () => {
+  const jobSource = {
+    url: "https://convex.dev/jobs",
+    title: "Job posting",
+    text: "Unique job evidence for preparation.",
+  };
+  const extracted = {
+    role: "Engineer",
+    company: "Convex",
+    interviewDate: null,
+    preparation: [],
+    jobUrl: jobSource.url,
+    jobSource,
+  };
+  const brief = {
+    role: extracted.role,
+    company: extracted.company,
+    interviewDate: null,
+    preparation: [],
+    summary: "Prepare engineering examples.",
+    focusAreas: [
+      {
+        topic: "Engineering",
+        why: "Relevant to role",
+        sourceUrl: jobSource.url,
+      },
+    ],
+    questions: ["Describe a difficult project."],
+    uncertainties: [],
+  };
+  async function prepared() {
+    const context = await setup();
+    const id = await context.t.run((ctx) =>
+      ctx.db.insert("opportunities", {
+        ownerId: context.alice,
+        requestId: "prep",
+        input: jobSource.url,
+        kind: "url",
+        status: "ready",
+        sources: [jobSource],
+        brief,
+        receivedAt: 1,
+      }),
+    );
+    return { ...context, id };
+  }
+  it("returns source links and the brief without research bodies, retaining owner isolation", async () => {
+    const { a, b, t, id } = await prepared();
+    const rows = await a.query(api.preparation.list, {});
+    expect(rows).toHaveLength(1);
+    expect(rows[0].brief).toEqual(brief);
+    expect(rows[0].sources).toEqual([
+      { url: jobSource.url, title: jobSource.title },
+    ]);
+    expect((await t.query(internal.preparation.load, { id })).sources).toEqual([
+      jobSource,
+    ]);
+    expect(await b.query(api.preparation.list, {})).toEqual([]);
+    await expect(t.query(api.preparation.list, {})).rejects.toThrow("Sign in");
+  });
+  it("sends job evidence once while preserving extracted details and citation validation", async () => {
+    const { t, id } = await prepared();
+    vi.stubEnv("OPENAI_API_KEY", "test-only");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: [
+            { content: [{ type: "output_text", text: JSON.stringify(brief) }] },
+          ],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    expect(
+      await t.action(internal.research.writeBrief, {
+        id,
+        extracted,
+        sources: [jobSource],
+      }),
+    ).toEqual(brief);
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const input = JSON.parse(request.input);
+    expect(input.extracted).toEqual({
+      role: extracted.role,
+      company: extracted.company,
+      interviewDate: null,
+      preparation: [],
+      jobUrl: jobSource.url,
+    });
+    expect(input.sources).toEqual([jobSource]);
+    expect(request.input.split(jobSource.text)).toHaveLength(2);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: [
+            {
+              content: [
+                {
+                  type: "output_text",
+                  text: JSON.stringify({
+                    ...brief,
+                    focusAreas: [
+                      {
+                        ...brief.focusAreas[0],
+                        sourceUrl: "https://convex.dev/unknown",
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    await expect(
+      t.action(internal.research.writeBrief, {
+        id,
+        extracted,
+        sources: [jobSource],
+      }),
+    ).rejects.toThrow("Unverified citation");
+  });
+  it("overlaps two scrapes, retains search order and tolerates a blocked page", async () => {
+    const { t, id } = await prepared();
+    const urls = [
+      "https://convex.dev/one",
+      "https://convex.dev/two",
+      "https://convex.dev/three",
+    ];
+    vi.spyOn(FirecrawlClient.prototype, "search").mockResolvedValue({
+      web: urls.map((url) => ({
+        url,
+        title: url,
+        description: "Company source",
+      })),
+    });
+    const pending = new Map<
+      string,
+      {
+        resolve: (doc: { markdown: string }) => void;
+        reject: (error: Error) => void;
+      }
+    >();
+    let active = 0,
+      peak = 0;
+    const scrape = vi
+      .spyOn(FirecrawlClient.prototype, "scrape")
+      .mockImplementation(async (_ctx, url) => {
+        active++;
+        peak = Math.max(peak, active);
+        try {
+          return await new Promise<{ markdown: string }>((resolve, reject) => {
+            pending.set(url, { resolve, reject });
+          });
+        } finally {
+          active--;
+        }
+      });
+    const result = t.action(internal.research.research, { id, extracted });
+    await vi.waitFor(() => expect(scrape).toHaveBeenCalledTimes(2));
+    expect(active).toBe(2);
+    // Finish in reverse order: output must still follow the search results.
+    pending.get(urls[1])!.resolve({ markdown: "Second page" });
+    pending.get(urls[0])!.resolve({ markdown: "First page" });
+    await vi.waitFor(() => expect(scrape).toHaveBeenCalledTimes(3));
+    pending.get(urls[2])!.reject(new Error("Blocked"));
+    expect((await result).map((s) => s.url)).toEqual([
+      jobSource.url,
+      urls[0],
+      urls[1],
+    ]);
+    expect(peak).toBe(2);
+  });
+  it("normalizes and deduplicates supplemental URLs before fetching and skips private hosts", async () => {
+    const { t, id } = await prepared();
+    vi.spyOn(FirecrawlClient.prototype, "search").mockResolvedValue({
+      web: [
+        "https://convex.dev/about#one",
+        "https://convex.dev/about#two",
+        "https://127.0.0.1",
+      ].map((url) => ({ url, title: "About", description: "Company source" })),
+    });
+    const scrape = vi
+      .spyOn(FirecrawlClient.prototype, "scrape")
+      .mockResolvedValue({ markdown: "About the company" });
+    const sources = await t.action(internal.research.research, {
+      id,
+      extracted,
+    });
+    expect(scrape).toHaveBeenCalledTimes(1);
+    expect(scrape.mock.calls[0][1]).toBe("https://convex.dev/about");
+    expect(sources.map((s) => s.url)).toEqual([
+      jobSource.url,
+      "https://convex.dev/about",
+    ]);
   });
 });
 describe("untrusted inputs", () => {

@@ -94,7 +94,14 @@ export const close = action({
       await openaiRequest(
         `/live/sessions/${encodeURIComponent(s.liveId)}/hangup`,
         {},
-      ).catch(async () => {
+      ).catch(async (error) => {
+        console.warn("Voice hangup failed; scheduling cleanup retry", {
+          sessionId: id,
+          error:
+            error instanceof ConvexError
+              ? error.data
+              : "Network request failed",
+        });
         await ctx.scheduler.runAfter(1000, internal.voice.expire, { id });
       });
     await ctx.runMutation(internal.sessions.markClosed, {
@@ -114,7 +121,16 @@ export const expire = internalAction({
       await openaiRequest(
         `/live/sessions/${encodeURIComponent(s.liveId)}/hangup`,
         {},
-      ).catch(async () => {
+      ).catch(async (error) => {
+        console.warn("Voice cleanup hangup failed", {
+          sessionId: id,
+          attempt,
+          retrying: attempt < 2,
+          error:
+            error instanceof ConvexError
+              ? error.data
+              : "Network request failed",
+        });
         if (attempt < 2)
           await ctx.scheduler.runAfter(
             5000 * (attempt + 1),
