@@ -8,8 +8,8 @@ import {
   feedbackInput,
   feedbackInstructions,
 } from "../server/prompts";
-import { feedbackSchema, type PracticeSession } from "../shared/types";
-import { validateFeedback } from "../shared/feedback";
+import { feedbackSchema } from "../shared/types";
+import { FeedbackValidationError, validateFeedback } from "../shared/feedback";
 import { openaiRequest, structured } from "./openai";
 export const status = action({
   args: {},
@@ -166,26 +166,35 @@ export const review = action({
       const input = feedbackInput(s, previous);
       let feedback;
       let validationError = "";
+      let rejectedFeedback: unknown;
       for (let attempt = 0; attempt < 2; attempt++) {
         const raw = await structured(
           feedbackSchema,
           "interview_feedback",
           feedbackInstructions +
             (validationError
-              ? "\nYour previous result failed evidence validation: " +
+              ? "\nCorrect rejectedFeedback in the reference data. It failed evidence validation: " +
                 validationError +
                 " Copy short exact quotes from current user speech, preserving punctuation and whitespace. Do not reuse a previous-attempt quote."
               : ""),
-          input,
+          validationError ? { ...input, rejectedFeedback } : input,
         );
         try {
           feedback = validateFeedback(raw, s);
           break;
         } catch (error) {
+          console.warn("Feedback validation failed", {
+            attempt: attempt + 1,
+            field:
+              error instanceof FeedbackValidationError
+                ? error.field
+                : "response",
+          });
           if (attempt === 1) throw error;
+          rejectedFeedback = raw;
           validationError =
-            error instanceof Error
-              ? error.message
+            error instanceof FeedbackValidationError
+              ? `${error.field}: ${error.message}`
               : "Use only verified evidence.";
         }
       }
@@ -198,12 +207,18 @@ export const review = action({
       });
       return ctx.runQuery(api.sessions.get, { id });
     } catch (e) {
+      const message =
+        e instanceof FeedbackValidationError
+          ? e.message
+          : e instanceof ConvexError && typeof e.data === "string"
+            ? e.data
+            : "Feedback could not be completed. Your transcript is saved. Retry feedback.";
       await ctx.runMutation(internal.sessions.saveFeedback, {
         id,
         claim: claimed,
-        error: "Feedback could not be completed. Retry feedback.",
+        error: message,
       });
-      throw e;
+      throw new ConvexError(message);
     }
   },
 });

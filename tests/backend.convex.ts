@@ -6,6 +6,7 @@ import { api, internal } from "../convex/_generated/api";
 import { publicUrl } from "../shared/preparation";
 import { verifyAgentMailWebhook } from "@agentmail/convex";
 import { Webhook } from "svix";
+import { sampleFeedback } from "./fixtures";
 import { FirecrawlClient } from "@firecrawl/firecrawl-convex";
 const modules = import.meta.glob("../convex/**/*.ts");
 async function setup() {
@@ -43,6 +44,116 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+describe("voice review recovery", () => {
+  async function endedSession() {
+    const context = await setup();
+    const id = await context.a.mutation(internal.sessions.reserve, {
+      config,
+      requestId: "review",
+    });
+    await context.a.mutation(api.sessions.append, {
+      id,
+      fragments: [fragment],
+    });
+    await context.a.mutation(api.sessions.finalize, {
+      id,
+      confirmed: true,
+      reason: "done",
+      seconds: 1,
+    });
+    const session = await context.a.query(api.sessions.get, { id });
+    vi.stubEnv("OPENAI_API_KEY", "test-only");
+    return { ...context, id, session };
+  }
+  function modelResult(value: unknown) {
+    return new Response(
+      JSON.stringify({
+        output: [
+          { content: [{ type: "output_text", text: JSON.stringify(value) }] },
+        ],
+      }),
+    );
+  }
+  it("returns a safe retryable error after two invalid quotes, preserving the transcript for a successful retry", async () => {
+    const { a, b, t, id, session } = await endedSession();
+    const good = sampleFeedback(session);
+    const bad = {
+      ...good,
+      strengths: [{ ...good.strengths[0], quote: "Invented private claim" }],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(modelResult(bad)));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(b.action(api.voice.review, { id })).rejects.toThrow(
+      "Session not found",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(a.action(api.voice.review, { id })).rejects.toMatchObject({
+      data: expect.stringContaining("quote that could not be verified"),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const failed = await a.query(api.sessions.get, { id });
+    expect(failed.fragments).toEqual(session.fragments);
+    expect(failed.feedback).toBeUndefined();
+    expect(failed.feedbackError).toContain("quote that could not be verified");
+    expect(failed.feedbackError).not.toContain("Invented private claim");
+    expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackState).toBe(
+      "failed",
+    );
+    const correction = JSON.parse(fetchMock.mock.calls[1][1].body).instructions;
+    expect(correction).toContain("strengths[0].quote");
+    expect(
+      JSON.parse(JSON.parse(fetchMock.mock.calls[1][1].body).input)
+        .rejectedFeedback,
+    ).toEqual(bad);
+    fetchMock.mockImplementation(() => Promise.resolve(modelResult(good)));
+    const result = await a.action(api.voice.review, { id });
+    expect(result.feedback).toEqual(good);
+    expect(result.feedbackError).toBeUndefined();
+    expect(result.fragments).toEqual(session.fragments);
+    expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackState).toBe("ready");
+    await a.action(api.voice.review, { id });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+  it("repairs a bad first response using a second grounded response", async () => {
+    const { a, id, session } = await endedSession();
+    const good = sampleFeedback(session);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(modelResult({ ...good, improvements: [] }))
+      .mockResolvedValueOnce(modelResult(good));
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await a.action(api.voice.review, { id })).feedback).toEqual(good);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it("hides unexpected provider details while retaining an actionable failure state", async () => {
+    const { a, id } = await endedSession();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("secret provider body")),
+    );
+    await expect(a.action(api.voice.review, { id })).rejects.toMatchObject({
+      data: "Feedback could not be completed. Your transcript is saved. Retry feedback.",
+    });
+    expect((await a.query(api.sessions.get, { id })).feedbackError).toBe(
+      "Feedback could not be completed. Your transcript is saved. Retry feedback.",
+    );
+  });
+  it("preserves actionable provider errors", async () => {
+    const { a, id } = await endedSession();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("", { status: 429 })),
+    );
+    await expect(a.action(api.voice.review, { id })).rejects.toMatchObject({
+      data: expect.stringContaining("usage limit"),
+    });
+    expect((await a.query(api.sessions.get, { id })).feedbackError).toContain(
+      "usage limit",
+    );
+  });
 });
 describe("private practice", () => {
   it("rejects unauthenticated access", async () => {

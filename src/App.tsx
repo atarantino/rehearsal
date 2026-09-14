@@ -988,7 +988,10 @@ export default function App() {
                   </p>
                   <button
                     className="primary"
-                    onClick={() => void generateFeedback(record)}
+                    onClick={() => {
+                      setError("");
+                      void generateFeedback(record);
+                    }}
                   >
                     Retry feedback
                     <Sparkles size={17} />
