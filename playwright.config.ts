@@ -11,9 +11,9 @@ export default defineConfig({
     viewport: { width: 1440, height: 1100 },
     trace: "retain-on-failure",
   },
-  outputDir: "../../work/checks/test-results",
+  outputDir: "test-results",
   webServer: {
-    command: "npx tsx tests/test-server.ts",
+    command: "VITE_LOCAL_MODE=true npx tsx tests/test-server.ts",
     url: "http://127.0.0.1:4318",
     reuseExistingServer: false,
   },

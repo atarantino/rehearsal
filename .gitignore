@@ -18,3 +18,14 @@ test-results/
 # Local session data and OS files
 data/
 .DS_Store
+
+# Isolated browser fixture build
+dist-test/
+
+# Locally installed agent skill catalog
+.agents/skills/convex-*/
+!.agents/skills/convex-hackathon-skill/
+.claude/
+skills-lock.json
+
+.agents/skills/convex/

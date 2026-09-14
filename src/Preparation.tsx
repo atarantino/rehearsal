@@ -1,0 +1,286 @@
+import { useState } from "react";
+import { useQuery, useMutation, useAction } from "convex/react";
+import {
+  Mail,
+  Link2,
+  ArrowRight,
+  Check,
+  LoaderCircle,
+  ExternalLink,
+} from "lucide-react";
+import { api } from "../convex/_generated/api";
+import type { SessionConfig } from "../shared/types";
+import type { Id } from "../convex/_generated/dataModel";
+export function Preparation({
+  onSelect,
+}: {
+  onSelect: (config: Partial<SessionConfig>) => void;
+}) {
+  const opportunities = useQuery(api.preparation.list, {});
+  const inbox = useQuery(api.email.inbox, {});
+  const create = useMutation(api.preparation.create);
+  const retry = useMutation(api.preparation.retry);
+  const createInbox = useAction(api.email.create);
+  const [url, setUrl] = useState("");
+  const [selected, setSelected] = useState<string | null>(() =>
+    new URLSearchParams(location.search).get("prep"),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [autoReply, setAutoReply] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const current =
+    opportunities?.find((o) => o._id === selected) ?? opportunities?.[0];
+  const b = current?.brief;
+  async function submit() {
+    setBusy(true);
+    setError("");
+    try {
+      const id = await create({ url, requestId: crypto.randomUUID() });
+      setSelected(id);
+      setUrl("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="prep-panel">
+      <div className="section-title">
+        <span className="step-number">
+          <Link2 size={16} />
+        </span>
+        <h2>Prepare for a real opportunity</h2>
+      </div>
+      <p className="muted">
+        Start with your job posting or a forwarded invitation.
+      </p>
+      <div className="prep-input">
+        <input
+          type="url"
+          aria-label="Job posting URL"
+          placeholder="https://company.com/careers/your-role"
+          value={url}
+          maxLength={2000}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && url && !busy) void submit();
+          }}
+        />
+        <button
+          className="primary"
+          disabled={!url || busy}
+          onClick={() => void submit()}
+        >
+          {busy ? (
+            <LoaderCircle className="spin" size={18} />
+          ) : (
+            <ArrowRight size={18} />
+          )}
+          Prepare
+        </button>
+      </div>
+      <details className="inbox-details">
+        <summary>
+          <Mail size={17} /> Forward an interview invitation
+        </summary>
+        {inbox ? (
+          <>
+            <p>
+              Forward the invitation to your private preparation inbox. Email
+              text is processed; attachments are not imported.
+            </p>
+            <div className="inbox-address">
+              <code>{inbox.address}</code>
+              <button
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(inbox.address)
+                    .then(() => setCopied(true))
+                    .catch(() => setError("Copy the address manually."))
+                }
+              >
+                {copied ? <Check size={16} /> : "Copy"}
+              </button>
+            </div>
+            <small>
+              {inbox.autoReply
+                ? "A preparation link will be sent in reply when your brief is ready."
+                : "Your new brief appears here automatically."}
+            </small>
+          </>
+        ) : (
+          <>
+            <p>
+              Create an inbox just for your interviews. Forwarded messages will
+              appear here automatically.
+            </p>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={autoReply}
+                onChange={(e) => setAutoReply(e.target.checked)}
+              />
+              Reply to forwarded invitations with a private preparation link.
+            </label>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  await createInbox({ autoReply });
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Create my preparation inbox
+            </button>
+          </>
+        )}
+      </details>
+      {error && (
+        <p role="alert" className="auth-error">
+          {error}
+        </p>
+      )}
+      {!!opportunities?.length && (
+        <>
+          <label htmlFor="opportunity">Your recent opportunities</label>
+          <select
+            id="opportunity"
+            value={current?._id ?? ""}
+            onChange={(e) => setSelected(e.target.value)}
+          >
+            {opportunities.map((o) => (
+              <option key={o._id} value={o._id}>
+                {o.brief
+                  ? `${o.brief.role || "Role to confirm"} · ${o.brief.company}`
+                  : o.kind === "email"
+                    ? "Forwarded invitation"
+                    : o.input}{" "}
+                — {o.status}
+              </option>
+            ))}
+          </select>
+          {current && !["ready", "failed"].includes(current.status) && (
+            <div className="prep-progress" role="status">
+              <LoaderCircle className="spin" size={20} />
+              <div>
+                <strong>
+                  {
+                    {
+                      queued: "Starting preparation",
+                      reading: "Reading the opportunity",
+                      researching: "Researching the role and company",
+                      writing: "Writing your preparation brief",
+                    }[current.status as "queued"]
+                  }
+                </strong>
+                <p>
+                  This updates live. You can leave and return to your workspace.
+                </p>
+              </div>
+            </div>
+          )}
+          {current?.status === "failed" && (
+            <div className="prep-progress">
+              <p>{current.error}</p>
+              <button
+                onClick={() =>
+                  void retry({ id: current._id }).catch((e) =>
+                    setError(e.message),
+                  )
+                }
+              >
+                Retry preparation
+              </button>
+            </div>
+          )}
+          {b && current?.status === "ready" && (
+            <div className="brief">
+              <p className="eyebrow">YOUR INTERVIEW BRIEF</p>
+              <h3>{b.role || "Confirm your target role below"}</h3>
+              <p className="company">
+                {b.company}
+                {b.interviewDate ? ` · ${b.interviewDate}` : ""}
+              </p>
+              <p>{b.summary}</p>
+              {!!b.preparation.length && (
+                <>
+                  <h4>From the invitation</h4>
+                  <ul>
+                    {b.preparation.map((p) => (
+                      <li key={p}>{p}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <h4>What to prepare</h4>
+              <div className="focus-grid">
+                {b.focusAreas.map((f) => (
+                  <article key={f.topic}>
+                    <strong>{f.topic}</strong>
+                    <p>{f.why}</p>
+                    <a href={f.sourceUrl} target="_blank" rel="noreferrer">
+                      Source <ExternalLink size={12} />
+                    </a>
+                  </article>
+                ))}
+              </div>
+              <h4>Choose a question to rehearse</h4>
+              <div className="question-list">
+                {b.questions.map((q) => (
+                  <button
+                    key={q}
+                    onClick={() =>
+                      onSelect({
+                        mode: "coached",
+                        role: b.role,
+                        jobDescription: JSON.stringify(b),
+                        opportunityId: current._id,
+                        startingQuestion: q,
+                        previousId: undefined,
+                        relation: undefined,
+                      })
+                    }
+                  >
+                    {q}
+                    <ArrowRight size={17} />
+                  </button>
+                ))}
+              </div>
+              {!!b.uncertainties.length && (
+                <details>
+                  <summary>What still needs confirming</summary>
+                  <ul>
+                    {b.uncertainties.map((u) => (
+                      <li key={u}>{u}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              <details>
+                <summary>Research sources ({current.sources.length})</summary>
+                <ul>
+                  {current.sources.map((s) => (
+                    <li key={s.url}>
+                      <a href={s.url} target="_blank" rel="noreferrer">
+                        {s.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}

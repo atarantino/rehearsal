@@ -54,37 +54,8 @@ export interface Provider {
   ): { send: (e: WireEvent) => void; close: () => void };
   feedback(s: PracticeSession, previous?: PracticeSession): Promise<Feedback>;
 }
-export function validateFeedback(raw: unknown, s: PracticeSession) {
-  const f = feedbackSchema.parse(raw);
-  const text = speakerText(s.fragments, "user");
-  for (const item of [...f.strengths, ...f.improvements])
-    if (!item.quote.trim() || !text.includes(item.quote))
-      throw new AppError(
-        "The feedback contained a quote that could not be verified. Retry feedback to generate a grounded review.",
-        502,
-      );
-  if (!f.insufficientEvidence && f.improvements.length !== 2)
-    throw new AppError("The review was incomplete. Retry feedback.", 502);
-  if (s.config.relation !== "retry") f.comparison = null;
-  if (
-    f.retryQuestion &&
-    !speakerText(s.fragments, "assistant").includes(f.retryQuestion)
-  )
-    throw new AppError(
-      "The suggested retry question could not be verified. Retry feedback.",
-      502,
-    );
-  if (s.config.mode === "coached") f.retryQuestion = null;
-  const facts = text + " " + s.config.background;
-  for (const part of f.outline)
-    for (const number of part.text.match(/\b\d+(?:[.,]\d+)*(?:%?)/g) || [])
-      if (!facts.includes(number))
-        throw new AppError(
-          "The answer outline included an unsupported number. Retry feedback for a grounded outline.",
-          502,
-        );
-  return f;
-}
+export { validateFeedback } from "../shared/feedback.js";
+import { validateFeedback } from "../shared/feedback.js";
 export class OpenAIProvider implements Provider {
   constructor(private key = process.env.OPENAI_API_KEY || "") {}
   ready() {
