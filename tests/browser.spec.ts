@@ -7,10 +7,28 @@ async function fakeVoice(page: Page) {
     w.__peerClosed = false;
     w.__sent = [];
     const context = new AudioContext();
-    const stream = context.createMediaStreamDestination().stream;
+    const makeVoice = () => {
+      const destination = context.createMediaStreamDestination();
+      const tone = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0;
+      tone.connect(gain).connect(destination);
+      tone.start();
+      return { stream: destination.stream, gain };
+    };
+    const user = makeVoice();
+    const assistant = makeVoice();
+    const stream = user.stream;
+    w.__voiceLevels = (you: number, interviewer: number) => {
+      user.gain.gain.value = you;
+      assistant.gain.gain.value = interviewer;
+    };
     w.__tracks = stream.getTracks();
     Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      value: async () => stream,
+      value: async () => {
+        await context.resume();
+        return stream;
+      },
       configurable: true,
     });
     class Channel {
@@ -57,6 +75,12 @@ async function fakeVoice(page: Page) {
     class Peer {
       iceGatheringState = "complete";
       connectionState = "connected";
+      iceConnectionState = "connected";
+      oniceconnectionstatechange: any;
+      constructor(configuration: RTCConfiguration) {
+        w.__peer = this;
+        w.__iceServers = configuration.iceServers;
+      }
       localDescription: any;
       ontrack: any;
       onconnectionstatechange: any;
@@ -72,6 +96,7 @@ async function fakeVoice(page: Page) {
         this.localDescription = d;
       }
       async setRemoteDescription() {
+        this.ontrack?.({ track: assistant.stream.getAudioTracks()[0] });
         setTimeout(
           () =>
             w.__channel.emit({
@@ -134,6 +159,25 @@ async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await expect(page.getByRole("status")).toHaveText("Connected");
 }
 
+for (const version of [155, 156]) {
+  test(`Firefox ${version} gets the appropriate voice compatibility notice`, async ({
+    page,
+  }) => {
+    await page.addInitScript((version) => {
+      Object.defineProperty(navigator, "userAgent", {
+        value: `Mozilla/5.0 Gecko/20100101 Firefox/${version}.0`,
+        configurable: true,
+      });
+    }, version);
+    await page.goto("/");
+    const notice = page
+      .getByRole("note")
+      .filter({ hasText: "disconnect voice practice" });
+    if (version < 156) await expect(notice).toBeVisible();
+    else await expect(notice).toHaveCount(0);
+  });
+}
+
 test("setup is usable at desktop and mobile widths", async ({ page }) => {
   await page.goto("/");
   await expect(
@@ -156,6 +200,99 @@ test("setup is usable at desktop and mobile widths", async ({ page }) => {
     path: "test-results/setup-mobile.png",
     fullPage: true,
   });
+});
+test("wave follows both audio streams, respects mute and reduced motion", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  const stage = page.locator(".conversation-stage");
+  await expect(stage).toHaveAttribute("data-speaker", "idle");
+  await page.evaluate(() => (window as any).__voiceLevels(0, 0.12));
+  await expect(
+    page.getByRole("heading", { name: "Interviewer speaking." }),
+  ).toBeVisible();
+  await expect(stage).toHaveAttribute("data-speaker", "assistant");
+  await page.screenshot({
+    path: "test-results/voice-interviewer.png",
+    fullPage: true,
+  });
+  await page.evaluate(() => (window as any).__voiceLevels(0.12, 0));
+  await expect(
+    page.getByRole("heading", { name: "You’re speaking." }),
+  ).toBeVisible();
+  await expect(stage).toHaveAttribute("data-speaker", "user");
+  await page.getByRole("button", { name: "Mute", exact: true }).click();
+  await expect(stage).toHaveAttribute("data-speaker", "idle");
+  await page.evaluate(() => (window as any).__voiceLevels(0.12, 0.12));
+  await expect(stage).toHaveAttribute("data-speaker", "assistant");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const bars = stage.locator(".wave i");
+  const before = await bars.evaluateAll((nodes) =>
+    nodes.map((n) => getComputedStyle(n).transform),
+  );
+  await page.evaluate(() => (window as any).__voiceLevels(0, 0));
+  await expect(stage).toHaveAttribute("data-speaker", "idle");
+  expect(
+    await bars.evaluateAll((nodes) =>
+      nodes.map((n) => getComputedStyle(n).transform),
+    ),
+  ).toEqual(before);
+  await page
+    .getByRole("button", { name: "Review answer", exact: true })
+    .click();
+  await expect(page.getByText("Limited evidence")).toBeVisible();
+});
+
+test("feedback animation stays visible while work is pending and settles for reduced motion", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  await speak(page);
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  await page.route("**/api/sessions/*/feedback", async (route) => {
+    await pending;
+    await route.continue();
+  });
+  await page
+    .getByRole("button", { name: "Review answer", exact: true })
+    .click();
+  const loading = page.locator(".review-loading");
+  await expect(loading).toContainText("Finding the useful details.");
+  expect(
+    await loading.evaluate(
+      (node) => node.getAnimations({ subtree: true }).length,
+    ),
+  ).toBeGreaterThan(0);
+  await page.screenshot({
+    path: "test-results/review-processing.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/review-processing-mobile.png",
+    fullPage: true,
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(
+    await loading.evaluate(
+      (node) => node.getAnimations({ subtree: true }).length,
+    ),
+  ).toBe(0);
+  finish();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+  await expect(loading).toHaveCount(0);
 });
 test("coached flow, mute, captions, review, retry comparison, history and deletion", async ({
   page,
@@ -301,6 +438,91 @@ test("connection loss retains the partial transcript for review", async ({
   await expect(page.getByRole("alert")).toContainText("connection dropped");
   await expect(page.getByText(/Partial session · This review/)).toBeVisible();
 });
+test("a temporary ICE disconnect warns without ending the attempt and recovers", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  await speak(page);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.iceConnectionState = "disconnected";
+    peer.oniceconnectionstatechange?.();
+  });
+  await expect(page.getByRole("status")).toHaveText(
+    "Connection interrupted — pause speaking",
+  );
+  expect(
+    await page.evaluate(() =>
+      (window as any).__tracks.every(
+        (t: MediaStreamTrack) => t.readyState === "live",
+      ),
+    ),
+  ).toBe(true);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.iceConnectionState = "connected";
+    peer.oniceconnectionstatechange?.();
+  });
+  await expect(page.getByRole("status")).toHaveText("Connected");
+  await page
+    .getByRole("button", { name: "Review answer", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+});
+test("failed ICE saves promptly even when the data channel still claims to be open", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  await speak(page);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.connectionState = "failed";
+    peer.iceConnectionState = "failed";
+    peer.onconnectionstatechange();
+  });
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      (window as any).__sent.some((e: any) => e.type === "session.close"),
+    ),
+  ).toBe(false);
+  await page.getByText("Read your transcript").click();
+  await expect(page.getByText(answer, { exact: true })).toBeVisible();
+  await expect(page.getByText(/Partial session · This review/)).toBeVisible();
+});
+test("an unreachable STUN server does not discard usable gathered candidates", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await page.addInitScript(() => {
+    const OriginalPeer = (window as any).RTCPeerConnection;
+    (window as any).RTCPeerConnection = class extends OriginalPeer {
+      iceGatheringState = "gathering";
+      async createOffer() {
+        return { type: "offer", sdp: "fixture-offer\r\na=candidate:fixture" };
+      }
+    };
+  });
+  await page.clock.install();
+  await page.goto("/");
+  await page.getByLabel("What role are you preparing for?").fill("Designer");
+  await page.getByRole("button", { name: "Start practicing" }).click();
+  await expect
+    .poll(() => page.evaluate(() => !!(window as any).__peer?.localDescription))
+    .toBe(true);
+  await page.clock.fastForward(10000);
+  await expect(page.getByRole("status")).toHaveText("Connected");
+  await page.getByRole("button", { name: "End & review" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+});
 test("coached hard limit ends the voice session even without clicking Review", async ({
   page,
 }) => {
@@ -442,21 +664,17 @@ test("document failures keep the draft and offer pasting; column PDFs remain edi
       "Keep this draft",
     );
   }
-  await page
-    .getByLabel("Import PDF or Word document")
-    .setInputFiles({
-      name: "old.doc",
-      mimeType: "application/msword",
-      buffer: Buffer.from("old document"),
-    });
+  await page.getByLabel("Import PDF or Word document").setInputFiles({
+    name: "old.doc",
+    mimeType: "application/msword",
+    buffer: Buffer.from("old document"),
+  });
   await expect(page.getByRole("alert")).toContainText("older .doc");
-  await page
-    .getByLabel("Import PDF or Word document")
-    .setInputFiles({
-      name: "broken.pdf",
-      mimeType: "application/pdf",
-      buffer: Buffer.from("broken"),
-    });
+  await page.getByLabel("Import PDF or Word document").setInputFiles({
+    name: "broken.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("broken"),
+  });
   await expect(page.getByRole("alert")).toContainText("could not be read");
   await page
     .getByLabel("Import PDF or Word document")

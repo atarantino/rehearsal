@@ -10,7 +10,8 @@ import {
 type Handlers = {
   state: (s: string) => void;
   fragments: (f: Fragment[]) => void;
-  level: (n: number) => void;
+  level: (levels: { user: number; assistant: number }) => void;
+  speaker: (speaker: "user" | "assistant" | null) => void;
   error: (s: string) => void;
   ended: (s: PracticeSession) => void;
   record: (s: PracticeSession) => void;
@@ -34,6 +35,9 @@ export class LiveSession {
   private ending?: Promise<void>;
   private disposed = false;
   private started = false;
+  private interrupted = false;
+  private disconnectTimer?: ReturnType<typeof setTimeout>;
+  private endReason = "close_requested";
   private muteAck?: {
     id: string;
     resolve: () => void;
@@ -63,19 +67,75 @@ export class LiveSession {
       analyser.fftSize = 256;
       this.context.createMediaStreamSource(this.mic).connect(analyser);
       const values = new Uint8Array(analyser.frequencyBinCount);
-      const measure = () => {
-        analyser.getByteTimeDomainData(values);
+      let remoteAnalyser: AnalyserNode | undefined;
+      let remoteSource: MediaStreamAudioSourceNode | undefined;
+      const remoteValues = new Uint8Array(analyser.frequencyBinCount);
+      const levels = { user: 0, assistant: 0 };
+      let measuredAt = 0;
+      let speaker: "user" | "assistant" | null = null;
+      let lastSpeechAt = 0;
+      const readLevel = (node: AnalyserNode, data: Uint8Array<ArrayBuffer>) => {
+        node.getByteTimeDomainData(data);
         const rms =
           Math.sqrt(
-            values.reduce((sum, v) => sum + (v - 128) ** 2, 0) / values.length,
+            data.reduce((sum, v) => sum + (v - 128) ** 2, 0) / data.length,
           ) / 128;
-        this.h.level(Math.min(1, rms * 7));
+        // Ignore the noise floor; ease out between syllables instead of flickering.
+        return rms < 0.008 ? 0 : Math.min(1, rms * 7);
+      };
+      const smooth = (previous: number, next: number) => {
+        const value =
+          previous + (next - previous) * (next > previous ? 0.65 : 0.2);
+        return value < 0.01 ? 0 : value;
+      };
+      const measure = (now: number) => {
+        if (this.disposed) return;
+        if (now - measuredAt >= 32) {
+          measuredAt = now;
+          levels.user = this.mic
+            ?.getAudioTracks()
+            .some((track) => track.enabled)
+            ? smooth(levels.user, readLevel(analyser, values))
+            : 0;
+          levels.assistant =
+            remoteAnalyser && !this.audio.paused && !this.audio.muted
+              ? smooth(
+                  levels.assistant,
+                  readLevel(remoteAnalyser, remoteValues),
+                )
+              : 0;
+          this.h.level({ ...levels });
+          let next =
+            levels.assistant > 0.06
+              ? ("assistant" as const)
+              : levels.user > 0.06
+                ? ("user" as const)
+                : null;
+          if (next) lastSpeechAt = now;
+          else if (speaker && levels[speaker] > 0 && now - lastSpeechAt < 300)
+            next = speaker;
+          if (next !== speaker) {
+            speaker = next;
+            this.h.speaker(speaker);
+          }
+        }
         this.animation = requestAnimationFrame(measure);
       };
-      measure();
-      const peer = (this.peer = new RTCPeerConnection());
+      this.animation = requestAnimationFrame(measure);
+      const peer = (this.peer = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+      }));
       peer.ontrack = (e) => {
-        this.audio.srcObject = new MediaStream([e.track]);
+        if (this.disposed || e.track.kind !== "audio") return;
+        const stream = new MediaStream([e.track]);
+        this.audio.srcObject = stream;
+        remoteSource?.disconnect();
+        remoteAnalyser?.disconnect();
+        remoteAnalyser = this.context!.createAnalyser();
+        remoteAnalyser.fftSize = 256;
+        remoteSource = this.context!.createMediaStreamSource(stream);
+        // Observe the stream only. The audio element remains the sole playback path.
+        remoteSource.connect(remoteAnalyser);
         this.audio
           .play()
           .catch(() =>
@@ -104,18 +164,20 @@ export class LiveSession {
         }
       };
       peer.onconnectionstatechange = () => {
-        if (peer.connectionState === "failed" && !this.disposed) {
-          this.h.error(
-            "Connection lost. Check your network before starting another attempt.",
-          );
-          void this.end("connection_lost");
-        }
+        this.connectionChanged();
       };
+      peer.oniceconnectionstatechange = () => this.connectionChanged();
       await peer.setLocalDescription(await peer.createOffer());
       if (peer.iceGatheringState !== "complete")
         await new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(() => {
             peer.removeEventListener("icegatheringstatechange", onState);
+            // STUN may be blocked even when direct connectivity to the voice
+            // service works. Offer the candidates already gathered in that case.
+            if (peer.localDescription?.sdp.includes("a=candidate:")) {
+              resolve();
+              return;
+            }
             reject(
               new Error(
                 "Microphone connection timed out. Check your network and retry.",
@@ -153,7 +215,10 @@ export class LiveSession {
           void this.end("startup_timeout");
         }
       }, 20000);
-      await peer.setRemoteDescription({ type: "answer", sdp: result.sdp });
+      await peer.setRemoteDescription({
+        type: "answer",
+        sdp: result.sdp,
+      });
       this.timer = setTimeout(
         () => {
           this.h.error("This practice session reached its time limit.");
@@ -175,6 +240,49 @@ export class LiveSession {
               : "The voice connection could not start.",
       );
     }
+  }
+  private connectionChanged() {
+    const peer = this.peer;
+    if (!peer || this.disposed || this.ending) return;
+    console.info("Voice connection state", {
+      at: new Date().toISOString(),
+      sessionId: this.record?.id,
+      connection: peer.connectionState,
+      ice: peer.iceConnectionState,
+      channel: this.channel?.readyState,
+      lastTranscriptMs: this.fragments.at(-1)?.end_ms ?? 0,
+    });
+    if (
+      peer.connectionState === "failed" ||
+      peer.iceConnectionState === "failed"
+    ) {
+      this.connectionLost();
+    } else if (
+      peer.connectionState === "disconnected" ||
+      peer.iceConnectionState === "disconnected"
+    ) {
+      if (this.interrupted) return;
+      this.interrupted = true;
+      this.h.state("Connection interrupted — pause speaking");
+      void this.flush().catch(() => {});
+      // A disconnected ICE transport may recover on its own. Do not close it
+      // immediately, or claim to be recording speech while it cannot deliver it.
+      this.disconnectTimer = setTimeout(() => this.connectionLost(), 15000);
+    } else if (
+      peer.connectionState === "connected" &&
+      ["connected", "completed"].includes(peer.iceConnectionState)
+    ) {
+      clearTimeout(this.disconnectTimer);
+      if (this.interrupted && this.started) this.h.state("Connected");
+      this.interrupted = false;
+    }
+  }
+  private connectionLost() {
+    if (this.disposed || this.ending) return;
+    this.h.error(
+      "The voice connection dropped. Your received transcript has been kept, but speech during the interruption may be missing.",
+    );
+    void this.end("connection_lost");
   }
   private event(e: any) {
     if (e.type === "session.started") {
@@ -270,11 +378,13 @@ export class LiveSession {
       throw e;
     }
   }
-  enableSound() {
-    return this.audio.play();
+  async enableSound() {
+    await this.context?.resume();
+    await this.audio.play();
   }
   end(reason = "close_requested"): Promise<void> {
     if (this.ending) return this.ending;
+    this.endReason = reason;
     this.ending = this.finish(reason);
     return this.ending;
   }
@@ -283,9 +393,15 @@ export class LiveSession {
     clearTimeout(this.timer);
     clearTimeout(this.setupTimer);
     clearInterval(this.saveTimer);
+    clearTimeout(this.disconnectTimer);
     this.mic?.getAudioTracks().forEach((t) => (t.enabled = false));
     this.audio.muted = true;
-    if (!this.finalEvent && this.channel?.readyState === "open")
+    // An ICE failure can leave readyState="open" on a dead data channel.
+    if (
+      reason !== "connection_lost" &&
+      !this.finalEvent &&
+      this.channel?.readyState === "open"
+    )
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(resolve, 12000);
         this.finalWait = () => {
@@ -297,12 +413,17 @@ export class LiveSession {
     try {
       if (!this.record) return;
       let record: PracticeSession | undefined;
+      // Save in parallel with provider cleanup, so a slow hangup cannot hold
+      // the pending transcript hostage. flush retains failed batches for retry.
+      const saved = this.flush();
+      void saved.catch(() => {});
       if (!this.finalEvent)
         record = await api<PracticeSession>(
           `/sessions/${this.record.id}/close`,
           {},
         ).catch(() => undefined);
       this.cleanup();
+      await saved;
       await this.flush();
       record = await api<PracticeSession>(
         `/sessions/${this.record.id}/finalize`,
@@ -332,7 +453,10 @@ export class LiveSession {
       `/sessions/${this.record.id}/finalize`,
       {
         confirmed: !!this.finalEvent,
-        reason: this.finalEvent?.reason || "connection_lost",
+        reason:
+          this.endReason !== "close_requested"
+            ? this.endReason
+            : this.finalEvent?.reason || "finalization_timeout",
         seconds: this.finalEvent?.usage?.seconds,
       },
     );
@@ -344,6 +468,7 @@ export class LiveSession {
     clearTimeout(this.timer);
     clearTimeout(this.setupTimer);
     clearInterval(this.saveTimer);
+    clearTimeout(this.disconnectTimer);
     cancelAnimationFrame(this.animation);
     if (this.muteAck) {
       clearTimeout(this.muteAck.timer);
@@ -356,7 +481,8 @@ export class LiveSession {
     this.channel?.close();
     this.peer?.close();
     void this.context?.close().catch(() => {});
-    this.h.level(0);
+    this.h.level({ user: 0, assistant: 0 });
+    this.h.speaker(null);
   }
   abandon() {
     if (this.record) {
