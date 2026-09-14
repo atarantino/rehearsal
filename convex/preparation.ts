@@ -63,14 +63,25 @@ export const create = mutation({
 });
 export const list = query({
   args: {},
-  returns: v.array(schema.doc("opportunities")),
+  returns: v.array(
+    schema
+      .doc("opportunities")
+      .omit("sources")
+      .extend({
+        sources: v.array(source.pick("url", "title")),
+      }),
+  ),
   handler: async (ctx) => {
     const user = await requireUser(ctx);
-    return ctx.db
+    const opportunities = await ctx.db
       .query("opportunities")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
       .order("desc")
       .take(20);
+    return opportunities.map((o) => ({
+      ...o,
+      sources: o.sources.map(({ url, title }) => ({ url, title })),
+    }));
   },
 });
 export const get = query({

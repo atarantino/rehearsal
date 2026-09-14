@@ -15,7 +15,7 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 - **OpenAI** conducts spoken interviews with `gpt-live-1`, using `gpt-5.6-terra` for delegated reasoning and written coaching.
 - **Convex** stores accounts, opportunities, transcripts, feedback, and retry relationships. Durable workflows show progress live; scheduled functions close abandoned voice sessions; rate limits bound paid work.
 
-Passkey signup is open without an invitation. Coached attempts last up to five minutes; mock interviews have a twenty-minute maximum. Feedback quotes must match current user speech exactly. Unsupported numeric outline claims are rejected. A retry keeps the question and compares attempts.
+Passkey signup is open without an invitation. Focused practice covers one interview question with up to two follow-ups and lasts up to five minutes per attempt; mock interviews have a twenty-minute maximum. Feedback quotes must match current user speech exactly. Unsupported numeric outline claims are rejected. A retry keeps the question and compares attempts.
 
 ## Resumes
 
