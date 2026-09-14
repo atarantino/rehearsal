@@ -11,7 +11,7 @@ const { app, shutdown } = createApp(
   new FixtureProvider(),
   4318,
 );
-app.use(express.static(resolve("dist")));
+app.use(express.static(resolve("dist-test")));
 const server = app.listen(4318, "127.0.0.1");
 async function stop() {
   await shutdown();

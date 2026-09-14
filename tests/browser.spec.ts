@@ -117,6 +117,8 @@ async function speak(page: Page) {
 }
 async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await page.goto("/");
+  if (mode === "mock")
+    await page.getByRole("button", { name: /Mock interview A real conversation/ }).click();
   if (mode === "coached")
     await page
       .getByRole("button", { name: /Coached practice One question/ })
@@ -134,7 +136,7 @@ test("setup is usable at desktop and mobile widths", async ({ page }) => {
     page.getByRole("heading", { name: /Find the words/ }),
   ).toBeVisible();
   await page.screenshot({
-    path: "../../work/checks/setup-desktop.png",
+    path: "test-results/setup-desktop.png",
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -147,7 +149,7 @@ test("setup is usable at desktop and mobile widths", async ({ page }) => {
     ),
   ).toBe(true);
   await page.screenshot({
-    path: "../../work/checks/setup-mobile.png",
+    path: "test-results/setup-mobile.png",
     fullPage: true,
   });
 });
@@ -179,7 +181,7 @@ test("coached flow, mute, captions, review, retry comparison, history and deleti
   ).toBe(true);
   expect(await page.evaluate(() => (window as any).__peerClosed)).toBe(true);
   await page.screenshot({
-    path: "../../work/checks/review-desktop.png",
+    path: "test-results/review-desktop.png",
     fullPage: true,
   });
   await page.getByRole("button", { name: "Try this answer again" }).click();

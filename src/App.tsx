@@ -25,10 +25,14 @@ import type {
   SessionSummary,
 } from "../shared/types";
 import { api } from "./api";
+import { cloudEnabled, convex } from "./convex";
+import { api as backend } from "../convex/_generated/api";
+import { Preparation } from "./Preparation";
+import { SignOut } from "./Auth";
 import { LiveSession } from "./live";
 import { captions, clock } from "./transcript";
 const initial: SessionConfig = {
-  mode: "mock",
+  mode: cloudEnabled ? "coached" : "mock",
   role: "",
   jobDescription: "",
   background: "",
@@ -107,7 +111,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [configured, setConfigured] = useState(true);
   const [reasoningBackend, setReasoningBackend] = useState<"codex" | "api">(
-    "codex",
+    "api",
   );
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -124,6 +128,12 @@ export default function App() {
     setSessions(await api<SessionSummary[]>("/sessions"));
   }
   useEffect(() => {
+    const watch = convex?.watchQuery(backend.sessions.list, {});
+    const unsubscribe = watch?.onUpdate(() => {
+      const rows = watch.localQueryResult();
+      if (rows)
+        setSessions(rows.map((r) => ({ ...r, hasFeedback: !!r.feedback })));
+    });
     void refresh().catch((e) => setError(e.message));
     void api<{ configured: boolean; reasoningBackend?: "codex" | "api" }>(
       "/status",
@@ -143,6 +153,7 @@ export default function App() {
     window.addEventListener("beforeunload", before);
     window.addEventListener("pagehide", hide);
     return () => {
+      unsubscribe?.();
       window.removeEventListener("beforeunload", before);
       window.removeEventListener("pagehide", hide);
     };
@@ -305,7 +316,12 @@ export default function App() {
           <span>Make room for your next step.</span>
         </div>
         <div className="local-status">
-          <i /> Personal workspace <span>Saved on this Mac</span>
+          <i /> Personal workspace{" "}
+          <span>
+            {cloudEnabled
+              ? "Saved privately in the cloud"
+              : "Saved on this Mac"}
+          </span>
         </div>
       </aside>
       <main>
@@ -320,9 +336,10 @@ export default function App() {
           <div>
             <span className="local-pill">
               <span />
-              LOCAL
+              {cloudEnabled ? "PRIVATE" : "LOCAL"}
             </span>
             <span className="avatar">You</span>
+            {cloudEnabled && <SignOut disabled={locked} />}
           </div>
         </header>
         <div className="content">
@@ -349,6 +366,43 @@ export default function App() {
               </button>
             </div>
           )}
+          {cloudEnabled &&
+            view === "setup" &&
+            sessions.some(
+              (s) => s.status === "active" || s.status === "connecting",
+            ) && (
+              <div className="prep-progress">
+                <p>
+                  An earlier interview is still open. Close it to review the
+                  saved transcript.
+                </p>
+                <button
+                  disabled={busy}
+                  onClick={async () => {
+                    const s = sessions.find(
+                      (s) => s.status === "active" || s.status === "connecting",
+                    );
+                    if (!s) return;
+                    setBusy(true);
+                    try {
+                      const r = await api<PracticeSession>(
+                        `/sessions/${s.id}/close`,
+                        {},
+                      );
+                      setRecord(r);
+                      setView("review");
+                      await refresh();
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Close earlier interview
+                </button>
+              </div>
+            )}
           {view === "setup" && (
             <>
               <div className="page-heading">
@@ -364,6 +418,16 @@ export default function App() {
                   can use.
                 </p>
               </div>
+              {cloudEnabled && (
+                <Preparation
+                  onSelect={(patch) => {
+                    setConfig({ ...config, ...patch });
+                    document
+                      .getElementById("role")
+                      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                />
+              )}
               <form onSubmit={(e) => void start(e)} className="setup-layout">
                 <section className="setup-panel">
                   <div className="section-title">
@@ -412,6 +476,11 @@ export default function App() {
                     <span className="step-number">2</span>
                     <h2>Set the scene</h2>
                   </div>
+                  {config.startingQuestion && (
+                    <p className="selected-question">
+                      <strong>Your question:</strong> {config.startingQuestion}
+                    </p>
+                  )}
                   <label htmlFor="role">What role are you preparing for?</label>
                   <input
                     id="role"
@@ -420,7 +489,12 @@ export default function App() {
                     required
                     value={config.role}
                     onChange={(e) =>
-                      setConfig({ ...config, role: e.target.value })
+                      setConfig({
+                        ...config,
+                        role: e.target.value,
+                        opportunityId: undefined,
+                        startingQuestion: undefined,
+                      })
                     }
                   />
                   <details className="context-details">
@@ -458,8 +532,8 @@ export default function App() {
                   </details>
                   {!configured && (
                     <p className="inline-notice">
-                      Before your first session, add a valid OpenAI key to the
-                      app’s .env file and restart the app.
+                      Voice practice is temporarily unavailable. Please try
+                      again later.
                     </p>
                   )}
                   <button
@@ -470,12 +544,6 @@ export default function App() {
                     Start practicing
                     <ArrowRight size={18} />
                   </button>
-                  <p className="billing-line">
-                    Voice: API <span>·</span> Reasoning:{" "}
-                    {reasoningBackend === "codex"
-                      ? "Codex subscription"
-                      : "API"}
-                  </p>
                   <p className="privacy-line">
                     <ShieldCheck size={15} />
                     Audio is processed by OpenAI, never recorded by this app.
@@ -704,10 +772,11 @@ export default function App() {
               {record.backendError && (
                 <div className="notice">{record.backendError}</div>
               )}
-              {(record.status === "partial" || !record.usageConfirmed) && (
+              {(record.status === "partial" ||
+                (!cloudEnabled && !record.usageConfirmed)) && (
                 <div className="notice">
                   Partial session · This review uses the available transcript.{" "}
-                  {record.usageConfirmed
+                  {cloudEnabled || record.usageConfirmed
                     ? ""
                     : "Final voice usage could not be confirmed."}
                 </div>
@@ -860,7 +929,7 @@ export default function App() {
                   Read your transcript{" "}
                   <span>
                     {record.fragments.length
-                      ? "Saved locally"
+                      ? "Saved in your workspace"
                       : "No speech captured"}
                     <ChevronDown size={16} />
                   </span>
@@ -969,8 +1038,8 @@ export default function App() {
           >
             <h2 id="delete-title">Delete this session?</h2>
             <p>
-              This removes its transcript and feedback from this Mac. Later
-              attempts remain available.
+              This removes its transcript and feedback from your workspace.
+              Later attempts remain available.
             </p>
             <div>
               <button

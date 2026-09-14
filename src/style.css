@@ -1443,3 +1443,265 @@ summary::-webkit-details-marker {
 .billing-line span {
   color: #99a6bb;
 }
+/* Opportunity preparation and private cloud workspace */
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 40px 20px;
+  background: #f6f7fb;
+}
+.auth-card {
+  width: min(700px, 100%);
+  background: white;
+  border: 1px solid #c7ccd9;
+  border-radius: 24px;
+  padding: 44px;
+  box-shadow: 0 18px 70px #27324c0d;
+}
+.auth-card h1 {
+  font-size: clamp(32px, 5vw, 46px);
+  line-height: 1.14;
+  letter-spacing: -1.6px;
+}
+.auth-card h1 span {
+  color: #6652c4;
+}
+.auth-card .eyebrow {
+  margin-top: 36px;
+}
+.auth-card > p {
+  line-height: 1.7;
+}
+.auth-card form {
+  display: grid;
+  gap: 14px;
+  margin: 30px 0;
+}
+.auth-card .primary {
+  justify-content: center;
+}
+.auth-steps {
+  display: flex;
+  gap: 32px;
+  padding-left: 20px;
+  color: #554891;
+}
+.privacy-copy {
+  font-size: 12px;
+  color: #596274;
+}
+.auth-error {
+  color: #9f263d;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.text-button {
+  background: none;
+  border: 0;
+  color: #534497;
+  cursor: pointer;
+  padding: 8px;
+}
+.prep-panel {
+  background: #fff;
+  border: 1px solid #c6cad7;
+  border-radius: 18px;
+  padding: 26px;
+  margin: 0 0 26px;
+}
+.prep-panel > p {
+  margin-top: 8px;
+}
+.prep-input {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0;
+}
+.prep-input input {
+  flex: 1;
+  min-width: 0;
+}
+.prep-input button {
+  white-space: nowrap;
+}
+.inbox-details {
+  border-top: 1px solid #c6cad7;
+  padding: 16px 0;
+  margin-bottom: 10px;
+}
+.inbox-details summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #57439e;
+  font-weight: 600;
+}
+.inbox-details p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.check-label {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 !important;
+  font-size: 13px !important;
+}
+.check-label input {
+  width: 16px !important;
+  height: 16px !important;
+}
+.inbox-address {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: #f1f0f8;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.inbox-address code {
+  overflow-wrap: anywhere;
+  flex: 1;
+}
+.inbox-address button {
+  border: 1px solid #aaa1c4;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: white;
+}
+.prep-panel select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #aeb5c5;
+  border-radius: 8px;
+  background: white;
+  font: inherit;
+  margin-top: 8px;
+}
+.prep-progress {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 22px;
+  background: #f4f2fb;
+  border-radius: 10px;
+  margin-top: 16px;
+}
+.prep-progress p {
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+.prep-progress button {
+  padding: 10px;
+  border: 1px solid #aaa1c4;
+  border-radius: 8px;
+}
+.brief {
+  border-top: 1px solid #c6cad7;
+  margin-top: 24px;
+  padding-top: 24px;
+}
+.brief h3 {
+  font-size: 26px;
+  margin: 8px 0;
+}
+.brief h4 {
+  font-size: 15px;
+  margin: 24px 0 12px;
+}
+.brief p,
+.brief li {
+  line-height: 1.6;
+  font-size: 14px;
+}
+.brief .company {
+  color: #6751b2;
+  font-weight: 600;
+}
+.focus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.focus-grid article {
+  background: #f7f6fc;
+  border: 1px solid #cbc4df;
+  border-radius: 10px;
+  padding: 16px;
+}
+.brief a {
+  color: #53419d;
+  text-decoration: underline;
+}
+.question-list {
+  display: grid;
+  gap: 8px;
+}
+.question-list button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  background: white;
+  border: 1px solid #b8adcf;
+  border-radius: 9px;
+  padding: 14px;
+  gap: 16px;
+  font: inherit;
+  cursor: pointer;
+}
+.question-list button:hover {
+  background: #f0ecfc;
+}
+.question-list svg {
+  flex-shrink: 0;
+  color: #6751b2;
+}
+.brief details {
+  margin-top: 16px;
+  font-size: 13px;
+}
+.brief summary {
+  cursor: pointer;
+}
+.selected-question {
+  padding: 14px;
+  background: #f1edf9;
+  border-radius: 10px;
+  line-height: 1.5;
+}
+.spin {
+  animation: spin 1.2s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 600px) {
+  .auth-card {
+    padding: 24px;
+  }
+  .auth-steps {
+    display: block;
+  }
+  .auth-steps li {
+    margin: 10px 0;
+  }
+  .prep-panel {
+    padding: 18px;
+  }
+  .prep-input {
+    flex-direction: column;
+  }
+  .focus-grid {
+    grid-template-columns: 1fr;
+  }
+  .inbox-address {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

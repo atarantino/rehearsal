@@ -4,7 +4,9 @@ export const configSchema = z.object({
   role: z.string().trim().min(1, "Enter a target role.").max(200),
   jobDescription: z.string().max(15000).default(""),
   background: z.string().max(15000).default(""),
-  previousId: z.string().uuid().optional(),
+  previousId: z.string().min(1).max(100).optional(),
+  opportunityId: z.string().min(1).max(100).optional(),
+  startingQuestion: z.string().max(1000).optional(),
   relation: z.enum(["retry", "next"]).optional(),
 });
 export type SessionConfig = z.infer<typeof configSchema>;

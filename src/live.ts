@@ -52,7 +52,7 @@ export class LiveSession {
     try {
       if (!navigator.mediaDevices?.getUserMedia)
         throw new Error(
-          "Open this app on localhost in Chrome to use your microphone.",
+          "Open this app over HTTPS in Chrome to use your microphone.",
         );
       this.mic = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },
@@ -360,16 +360,10 @@ export class LiveSession {
   }
   abandon() {
     if (this.record) {
-      navigator.sendBeacon(
-        `/api/sessions/${this.record.id}/events`,
-        new Blob([JSON.stringify({ fragments: this.pending })], {
-          type: "application/json",
-        }),
-      );
-      navigator.sendBeacon(
-        `/api/sessions/${this.record.id}/close`,
-        new Blob(["{}"], { type: "application/json" }),
-      );
+      const id = this.record.id;
+      this.send({ type: "session.close", event_id: crypto.randomUUID() });
+      void this.flush().catch(() => {});
+      void api(`/sessions/${id}/close`, {}).catch(() => {});
     }
     this.cleanup();
   }
