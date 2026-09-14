@@ -4,7 +4,7 @@ Turn an interview invitation into useful spoken practice. Forward an invitation 
 
 **Live app:** https://acoustic-cuttlefish-868.convex.site
 
-[Watch the demo draft](https://acoustic-cuttlefish-868.convex.site/rehearsal-demo.mp4) · [Submission materials](docs/submission.md)
+[Watch the demo draft](https://acoustic-cuttlefish-868.convex.site/demo.html) · [Submission materials](docs/submission.md)
 
 Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-gas). See [hackathon.md](hackathon.md) for the build log and submission checklist.
 

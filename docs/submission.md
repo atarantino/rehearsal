@@ -8,7 +8,7 @@ Repository: https://github.com/atarantino/rehearsal
 
 ## Recorded demo draft
 
-[Watch the 2 minute 11 second demo](https://acoustic-cuttlefish-868.convex.site/rehearsal-demo.mp4). It shows actual hosted preparation and two real voice sessions, with synthetic input, accelerated waiting/session playback, and AI narration. The retry intentionally repeats the answer to verify an honest unchanged comparison. The preparation and voice sequences use separate sample accounts and roles. The original session audio is replaced by narration.
+[Watch the 2 minute 11 second demo](https://acoustic-cuttlefish-868.convex.site/demo.html). It shows actual hosted preparation and two real voice sessions, with synthetic input, accelerated waiting/session playback, and AI narration. The retry intentionally repeats the answer to verify an honest unchanged comparison. The preparation and voice sequences use separate sample accounts and roles. The original session audio is replaced by narration.
 
 The draft is ready for review. For a stronger final presentation, record a human answer and an improved retry using the plan below.
 

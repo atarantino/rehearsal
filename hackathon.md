@@ -104,7 +104,7 @@ Checked against the [official requirements](https://www.convex.dev/hackathons/al
 - [x] Working OpenAI, Firecrawl, and AgentMail product integrations.
 - [x] Public convex.site app accessible without an invite.
 - [x] Source published on the public `hackathon/convex-preparation` branch for review.
-- [x] [Hosted demo draft, 2 minutes 11 seconds](https://acoustic-cuttlefish-868.convex.site/rehearsal-demo.mp4).
+- [x] [Hosted demo draft, 2 minutes 11 seconds](https://acoustic-cuttlefish-868.convex.site/demo.html).
 - [ ] Confirm Luma registration and personal eligibility.
 - [ ] Share on X or LinkedIn, tagging all four sponsors.
 - [ ] Submit repo, app, and video on vibeapps.dev before September 22, noon PT.
