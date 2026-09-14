@@ -7,10 +7,28 @@ async function fakeVoice(page: Page) {
     w.__peerClosed = false;
     w.__sent = [];
     const context = new AudioContext();
-    const stream = context.createMediaStreamDestination().stream;
+    const makeVoice = () => {
+      const destination = context.createMediaStreamDestination();
+      const tone = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0;
+      tone.connect(gain).connect(destination);
+      tone.start();
+      return { stream: destination.stream, gain };
+    };
+    const user = makeVoice();
+    const assistant = makeVoice();
+    const stream = user.stream;
+    w.__voiceLevels = (you: number, interviewer: number) => {
+      user.gain.gain.value = you;
+      assistant.gain.gain.value = interviewer;
+    };
     w.__tracks = stream.getTracks();
     Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      value: async () => stream,
+      value: async () => {
+        await context.resume();
+        return stream;
+      },
       configurable: true,
     });
     class Channel {
@@ -72,6 +90,7 @@ async function fakeVoice(page: Page) {
         this.localDescription = d;
       }
       async setRemoteDescription() {
+        this.ontrack?.({ track: assistant.stream.getAudioTracks()[0] });
         setTimeout(
           () =>
             w.__channel.emit({
@@ -156,6 +175,99 @@ test("setup is usable at desktop and mobile widths", async ({ page }) => {
     path: "test-results/setup-mobile.png",
     fullPage: true,
   });
+});
+test("wave follows both audio streams, respects mute and reduced motion", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  const stage = page.locator(".conversation-stage");
+  await expect(stage).toHaveAttribute("data-speaker", "idle");
+  await page.evaluate(() => (window as any).__voiceLevels(0, 0.12));
+  await expect(
+    page.getByRole("heading", { name: "Interviewer speaking." }),
+  ).toBeVisible();
+  await expect(stage).toHaveAttribute("data-speaker", "assistant");
+  await page.screenshot({
+    path: "test-results/voice-interviewer.png",
+    fullPage: true,
+  });
+  await page.evaluate(() => (window as any).__voiceLevels(0.12, 0));
+  await expect(
+    page.getByRole("heading", { name: "You’re speaking." }),
+  ).toBeVisible();
+  await expect(stage).toHaveAttribute("data-speaker", "user");
+  await page.getByRole("button", { name: "Mute", exact: true }).click();
+  await expect(stage).toHaveAttribute("data-speaker", "idle");
+  await page.evaluate(() => (window as any).__voiceLevels(0.12, 0.12));
+  await expect(stage).toHaveAttribute("data-speaker", "assistant");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const bars = stage.locator(".wave i");
+  const before = await bars.evaluateAll((nodes) =>
+    nodes.map((n) => getComputedStyle(n).transform),
+  );
+  await page.evaluate(() => (window as any).__voiceLevels(0, 0));
+  await expect(stage).toHaveAttribute("data-speaker", "idle");
+  expect(
+    await bars.evaluateAll((nodes) =>
+      nodes.map((n) => getComputedStyle(n).transform),
+    ),
+  ).toEqual(before);
+  await page
+    .getByRole("button", { name: "Review answer", exact: true })
+    .click();
+  await expect(page.getByText("Limited evidence")).toBeVisible();
+});
+
+test("feedback animation stays visible while work is pending and settles for reduced motion", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  await speak(page);
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  await page.route("**/api/sessions/*/feedback", async (route) => {
+    await pending;
+    await route.continue();
+  });
+  await page
+    .getByRole("button", { name: "Review answer", exact: true })
+    .click();
+  const loading = page.locator(".review-loading");
+  await expect(loading).toContainText("Finding the useful details.");
+  expect(
+    await loading.evaluate(
+      (node) => node.getAnimations({ subtree: true }).length,
+    ),
+  ).toBeGreaterThan(0);
+  await page.screenshot({
+    path: "test-results/review-processing.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/review-processing-mobile.png",
+    fullPage: true,
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(
+    await loading.evaluate(
+      (node) => node.getAnimations({ subtree: true }).length,
+    ),
+  ).toBe(0);
+  finish();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+  await expect(loading).toHaveCount(0);
 });
 test("coached flow, mute, captions, review, retry comparison, history and deletion", async ({
   page,
@@ -441,21 +553,17 @@ test("document failures keep the draft and offer pasting; column PDFs remain edi
       "Keep this draft",
     );
   }
-  await page
-    .getByLabel("Import PDF or Word document")
-    .setInputFiles({
-      name: "old.doc",
-      mimeType: "application/msword",
-      buffer: Buffer.from("old document"),
-    });
+  await page.getByLabel("Import PDF or Word document").setInputFiles({
+    name: "old.doc",
+    mimeType: "application/msword",
+    buffer: Buffer.from("old document"),
+  });
   await expect(page.getByRole("alert")).toContainText("older .doc");
-  await page
-    .getByLabel("Import PDF or Word document")
-    .setInputFiles({
-      name: "broken.pdf",
-      mimeType: "application/pdf",
-      buffer: Buffer.from("broken"),
-    });
+  await page.getByLabel("Import PDF or Word document").setInputFiles({
+    name: "broken.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("broken"),
+  });
   await expect(page.getByRole("alert")).toContainText("could not be read");
   await page
     .getByLabel("Import PDF or Word document")

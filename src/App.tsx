@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -77,13 +83,7 @@ function Transcript({
     </div>
   );
 }
-function Wave({
-  level = 0,
-  active = false,
-}: {
-  level?: number;
-  active?: boolean;
-}) {
+function Wave({ active = false }: { active?: boolean }) {
   return (
     <div className={`wave ${active ? "active" : ""}`} aria-hidden="true">
       {[
@@ -92,10 +92,13 @@ function Wave({
       ].map((v, i) => (
         <i
           key={i}
-          style={{
-            height: `${12 + v * (active ? 20 + level * 120 : 72)}px`,
-            opacity: 0.4 + v * 0.6,
-          }}
+          style={
+            {
+              height: `${12 + v * 72}px`,
+              "--bar-weight": v,
+              opacity: 0.4 + v * 0.6,
+            } as CSSProperties
+          }
         />
       ))}
     </div>
@@ -117,7 +120,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [state, setState] = useState("Connecting");
-  const [level, setLevel] = useState(0);
+  const [speaker, setSpeaker] = useState<"user" | "assistant" | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const [muted, setMuted] = useState(false);
   const [mutePending, setMutePending] = useState(false);
   const [showCaptions, setShowCaptions] = useState(false);
@@ -185,6 +189,7 @@ export default function App() {
     setBusy(true);
     setFragments([]);
     setMuted(false);
+    setSpeaker(null);
     setElapsed(0);
     setState("Connecting");
     setView("live");
@@ -197,7 +202,14 @@ export default function App() {
       },
       record: setRecord,
       fragments: setFragments,
-      level: setLevel,
+      level: (levels) => {
+        stage.current?.style.setProperty("--voice-user", String(levels.user));
+        stage.current?.style.setProperty(
+          "--voice-assistant",
+          String(levels.assistant),
+        );
+      },
+      speaker: setSpeaker,
       error: setError,
       ended: (s) => {
         controller.current = undefined;
@@ -656,7 +668,14 @@ export default function App() {
                   ? "Let your experience lead the conversation."
                   : "One answer at a time. Review when you’re ready."}
               </p>
-              <div className="conversation-stage">
+              <div
+                ref={stage}
+                className="conversation-stage"
+                data-speaker={
+                  state === "Connected" ? speaker || "idle" : "idle"
+                }
+                data-muted={muted}
+              >
                 <div
                   className={`connection-status ${state === "Connected" ? "connected" : ""}`}
                   role="status"
@@ -664,10 +683,10 @@ export default function App() {
                   <i />
                   {state}
                 </div>
-                <Wave
-                  active={state === "Connected"}
-                  level={muted ? 0 : level}
-                />
+                <div className="voice-visualizer">
+                  <div className="voice-halo" aria-hidden="true" />
+                  <Wave active={state === "Connected"} />
+                </div>
                 <h2>
                   {state === "Connecting"
                     ? "Making room for your voice…"
@@ -675,9 +694,13 @@ export default function App() {
                       ? "Saving your conversation…"
                       : state === "Save interrupted"
                         ? "Your answer is still here."
-                        : muted
-                          ? "Take your time."
-                          : "You have the floor."}
+                        : speaker === "assistant"
+                          ? "Interviewer speaking."
+                          : muted
+                            ? "Take your time."
+                            : speaker === "user"
+                              ? "You’re speaking."
+                              : "You have the floor."}
                 </h2>
                 <p>
                   {state === "Connected"
@@ -692,11 +715,7 @@ export default function App() {
                 >
                   <Mic size={14} />
                   <div>
-                    <i
-                      style={{
-                        width: `${muted ? 0 : Math.max(3, level * 100)}%`,
-                      }}
-                    />
+                    <i />
                   </div>
                   <span>{muted ? "Muted" : "Microphone"}</span>
                 </div>
@@ -821,8 +840,12 @@ export default function App() {
                 </div>
               )}
               {reviewing ? (
-                <div className="review-loading" role="status">
-                  <div className="loading-orbit">
+                <div
+                  className="review-loading"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="loading-orbit" aria-hidden="true">
                     <Sparkles size={25} />
                   </div>
                   <h2>Finding the useful details.</h2>
@@ -830,6 +853,16 @@ export default function App() {
                     Looking at your answer, your examples, and what could be
                     clearer.
                   </p>
+                  <div className="review-detail-hints" aria-hidden="true">
+                    <span>Your answer</span>
+                    <i />
+                    <span>Your examples</span>
+                    <i />
+                    <span>What could be clearer</span>
+                  </div>
+                  <div className="review-processing-track" aria-hidden="true">
+                    <i />
+                  </div>
                 </div>
               ) : record.feedback ? (
                 <>

@@ -10,7 +10,8 @@ import {
 type Handlers = {
   state: (s: string) => void;
   fragments: (f: Fragment[]) => void;
-  level: (n: number) => void;
+  level: (levels: { user: number; assistant: number }) => void;
+  speaker: (speaker: "user" | "assistant" | null) => void;
   error: (s: string) => void;
   ended: (s: PracticeSession) => void;
   record: (s: PracticeSession) => void;
@@ -63,19 +64,73 @@ export class LiveSession {
       analyser.fftSize = 256;
       this.context.createMediaStreamSource(this.mic).connect(analyser);
       const values = new Uint8Array(analyser.frequencyBinCount);
-      const measure = () => {
-        analyser.getByteTimeDomainData(values);
+      let remoteAnalyser: AnalyserNode | undefined;
+      let remoteSource: MediaStreamAudioSourceNode | undefined;
+      const remoteValues = new Uint8Array(analyser.frequencyBinCount);
+      const levels = { user: 0, assistant: 0 };
+      let measuredAt = 0;
+      let speaker: "user" | "assistant" | null = null;
+      let lastSpeechAt = 0;
+      const readLevel = (node: AnalyserNode, data: Uint8Array<ArrayBuffer>) => {
+        node.getByteTimeDomainData(data);
         const rms =
           Math.sqrt(
-            values.reduce((sum, v) => sum + (v - 128) ** 2, 0) / values.length,
+            data.reduce((sum, v) => sum + (v - 128) ** 2, 0) / data.length,
           ) / 128;
-        this.h.level(Math.min(1, rms * 7));
+        // Ignore the noise floor; ease out between syllables instead of flickering.
+        return rms < 0.008 ? 0 : Math.min(1, rms * 7);
+      };
+      const smooth = (previous: number, next: number) => {
+        const value =
+          previous + (next - previous) * (next > previous ? 0.65 : 0.2);
+        return value < 0.01 ? 0 : value;
+      };
+      const measure = (now: number) => {
+        if (this.disposed) return;
+        if (now - measuredAt >= 32) {
+          measuredAt = now;
+          levels.user = this.mic
+            ?.getAudioTracks()
+            .some((track) => track.enabled)
+            ? smooth(levels.user, readLevel(analyser, values))
+            : 0;
+          levels.assistant =
+            remoteAnalyser && !this.audio.paused && !this.audio.muted
+              ? smooth(
+                  levels.assistant,
+                  readLevel(remoteAnalyser, remoteValues),
+                )
+              : 0;
+          this.h.level({ ...levels });
+          let next =
+            levels.assistant > 0.06
+              ? ("assistant" as const)
+              : levels.user > 0.06
+                ? ("user" as const)
+                : null;
+          if (next) lastSpeechAt = now;
+          else if (speaker && levels[speaker] > 0 && now - lastSpeechAt < 300)
+            next = speaker;
+          if (next !== speaker) {
+            speaker = next;
+            this.h.speaker(speaker);
+          }
+        }
         this.animation = requestAnimationFrame(measure);
       };
-      measure();
+      this.animation = requestAnimationFrame(measure);
       const peer = (this.peer = new RTCPeerConnection());
       peer.ontrack = (e) => {
-        this.audio.srcObject = new MediaStream([e.track]);
+        if (this.disposed || e.track.kind !== "audio") return;
+        const stream = new MediaStream([e.track]);
+        this.audio.srcObject = stream;
+        remoteSource?.disconnect();
+        remoteAnalyser?.disconnect();
+        remoteAnalyser = this.context!.createAnalyser();
+        remoteAnalyser.fftSize = 256;
+        remoteSource = this.context!.createMediaStreamSource(stream);
+        // Observe the stream only. The audio element remains the sole playback path.
+        remoteSource.connect(remoteAnalyser);
         this.audio
           .play()
           .catch(() =>
@@ -270,8 +325,9 @@ export class LiveSession {
       throw e;
     }
   }
-  enableSound() {
-    return this.audio.play();
+  async enableSound() {
+    await this.context?.resume();
+    await this.audio.play();
   }
   end(reason = "close_requested"): Promise<void> {
     if (this.ending) return this.ending;
@@ -356,7 +412,8 @@ export class LiveSession {
     this.channel?.close();
     this.peer?.close();
     void this.context?.close().catch(() => {});
-    this.h.level(0);
+    this.h.level({ user: 0, assistant: 0 });
+    this.h.speaker(null);
   }
   abandon() {
     if (this.record) {
