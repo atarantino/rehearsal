@@ -4,6 +4,7 @@ export const config = v.object({
   role: v.string(),
   jobDescription: v.string(),
   background: v.string(),
+  practiceNotes: v.optional(v.string()),
   previousId: v.optional(v.string()),
   relation: v.optional(v.union(v.literal("retry"), v.literal("next"))),
   opportunityId: v.optional(v.id("opportunities")),

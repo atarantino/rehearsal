@@ -4,6 +4,7 @@ export const configSchema = z.object({
   role: z.string().trim().min(1, "Enter a target role.").max(200),
   jobDescription: z.string().max(15000).default(""),
   background: z.string().max(15000).default(""),
+  practiceNotes: z.string().max(8000).optional(),
   previousId: z.string().min(1).max(100).optional(),
   opportunityId: z.string().min(1).max(100).optional(),
   startingQuestion: z.string().max(1000).optional(),

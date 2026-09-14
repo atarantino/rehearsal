@@ -16,12 +16,15 @@
     "dev:local": "VITE_LOCAL_MODE=true tsx server/index.ts",
     "dev:backend": "convex dev",
     "deploy": "npx @convex-dev/static-hosting deploy",
-    "test:backend": "vitest run tests/backend.convex.ts",
+    "test:backend": "vitest run",
     "postinstall": "node scripts/patch-agentmail.mjs",
     "test:cloud": "node scripts/check-cloud.mjs"
   },
   "dependencies": {
     "@agentmail/convex": "0.1.0",
+    "@ai-sdk/openai": "^4.0.66",
+    "@convex-dev/agent": "^0.7.2",
+    "@convex-dev/ai-sdk-provider": "^0.1.0",
     "@convex-dev/auth": "^2.0.0-alpha.1",
     "@convex-dev/rate-limiter": "^0.3.2",
     "@convex-dev/static-hosting": "^0.2.1",
@@ -36,6 +39,7 @@
     "openai": "^7.15.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "unpdf": "^1.8.1",
     "ws": "^8.21.3",
     "zod": "^4.0.0"
   },

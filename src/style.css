@@ -10,6 +10,290 @@
   --line: #e1e6ef;
   --mist: #eef2f7;
 }
+.coaching-section {
+  margin: 28px 0;
+  padding: 28px;
+  border: 1px solid #c6d0e1;
+  border-radius: 18px;
+  background: #fff;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.coaching-heading {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  justify-content: space-between;
+}
+.coaching-heading > div {
+  max-width: 640px;
+}
+.coaching-heading h2,
+.coaching-materials h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+}
+.coaching-heading p,
+.coaching-materials p,
+.coaching-draft p {
+  line-height: 1.6;
+}
+.coaching-heading > button {
+  flex-shrink: 0;
+}
+.coaching-context {
+  margin: 24px 0 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.coaching-context p {
+  flex-basis: 100%;
+  color: #596780;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.coaching-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(240px, 1fr);
+  border: 1px solid #c6d0e1;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.coaching-conversation {
+  min-width: 0;
+}
+.coaching-messages {
+  max-height: 550px;
+  min-height: 200px;
+  overflow-y: auto;
+  padding: 22px;
+}
+.coaching-welcome {
+  padding: 16px 0;
+  color: #596780;
+  line-height: 1.65;
+}
+.coaching-welcome h3 {
+  color: var(--ink);
+  margin: 12px 0 8px;
+}
+.coaching-message {
+  padding: 16px;
+  margin: 0 0 16px;
+  border-radius: 12px;
+  background: #f1f4fa;
+  overflow-wrap: anywhere;
+}
+.coaching-message.user {
+  margin-left: 36px;
+  background: #e9eeff;
+}
+.coaching-message > span {
+  font-weight: 600;
+  font-size: 12px;
+  color: #4d5e7c;
+}
+.coaching-message p {
+  white-space: pre-wrap;
+  line-height: 1.65;
+  margin-top: 8px;
+  font-size: 14px;
+}
+.coaching-message button {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.coaching-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #596780;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.coaching-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 22px 20px;
+}
+.coaching-starters button {
+  font-size: 12px;
+  text-align: left;
+}
+.coaching-composer {
+  padding: 18px 22px;
+  border-top: 1px solid #c6d0e1;
+}
+.coaching-composer label,
+.coaching-notes label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.coaching-composer textarea,
+.coaching-notes textarea,
+.coaching-notes input,
+.coaching-draft textarea {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #98a7bf;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  line-height: 1.6;
+  resize: vertical;
+}
+.coaching-composer > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.coaching-composer .muted {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.coaching-materials {
+  padding: 20px;
+  background: #f8f9fc;
+  border-left: 1px solid #c6d0e1;
+  min-width: 0;
+}
+.coaching-materials > p {
+  font-size: 13px;
+}
+.coaching-material-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 18px 0 12px;
+  align-items: center;
+}
+.coaching-material-actions button {
+  font-size: 12px;
+}
+.coaching-limit {
+  font-size: 11px !important;
+  color: #596780;
+}
+.coaching-source {
+  border: 1px solid #a9b6ca;
+  background: white;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 14px;
+}
+.coaching-source summary {
+  cursor: pointer;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.coaching-source summary svg {
+  vertical-align: middle;
+  margin-right: 5px;
+}
+.coaching-source small {
+  display: block;
+  margin-top: 5px;
+  color: #596780;
+}
+.coaching-source button {
+  margin-top: 10px;
+  font-size: 12px;
+}
+.source-extract {
+  white-space: pre-wrap;
+  font-size: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.coaching-notes {
+  margin-top: 18px;
+}
+.coaching-notes input,
+.coaching-notes textarea {
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.coaching-error {
+  padding: 14px;
+  margin: 14px 0;
+  background: #fff0eb;
+  border: 1px solid #cc826a;
+  border-radius: 8px;
+  color: #8b3921;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.coaching-error button {
+  margin-top: 10px;
+}
+.coaching-draft {
+  margin-top: 24px;
+}
+.coaching-draft h3 {
+  margin: 8px 0;
+}
+.coaching-draft textarea {
+  margin-top: 16px;
+}
+.coaching-draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.coaching-draft-actions > span {
+  margin-right: auto;
+  font-size: 12px;
+}
+@media (max-width: 1000px) {
+  .coaching-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .coaching-materials {
+    border-left: 0;
+    border-top: 1px solid #c6d0e1;
+  }
+  .coaching-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+@media (max-width: 600px) {
+  .coaching-section {
+    padding: 16px;
+  }
+  .coaching-messages,
+  .coaching-composer {
+    padding: 14px;
+  }
+  .coaching-message.user {
+    margin-left: 12px;
+  }
+  .coaching-draft-actions > span {
+    flex-basis: 100%;
+  }
+}
 * {
   box-sizing: border-box;
 }
