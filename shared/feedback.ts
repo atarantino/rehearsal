@@ -1,24 +1,110 @@
 import { feedbackSchema, speakerText, type PracticeSession } from "./types";
+
+export class FeedbackValidationError extends Error {
+  constructor(
+    message: string,
+    readonly field: string,
+  ) {
+    super(message);
+    this.name = "FeedbackValidationError";
+  }
+}
+
+// Join streaming deltas without adding spaces or changing speaker order.
+export function feedbackTranscript(s: PracticeSession) {
+  const turns: { speaker: "user" | "assistant"; text: string }[] = [];
+  for (const fragment of [...s.fragments].sort(
+    (a, b) => a.start_ms - b.start_ms,
+  )) {
+    if (!fragment.delta) continue;
+    const last = turns.at(-1);
+    if (last?.speaker === fragment.speaker) last.text += fragment.delta;
+    else turns.push({ speaker: fragment.speaker, text: fragment.delta });
+  }
+  return turns;
+}
+
+// Only whitespace and typographic quote marks are equivalent. Keep offsets so
+// accepted evidence is always copied from the original, never model wording.
+function normalizeQuote(text: string) {
+  let normalized = "";
+  const starts: number[] = [],
+    ends: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const value = /\s/u.test(char)
+      ? " "
+      : /[‘’]/u.test(char)
+        ? "'"
+        : /[“”]/u.test(char)
+          ? '"'
+          : char;
+    if (value === " " && normalized.endsWith(" ")) {
+      ends[ends.length - 1] = i + 1;
+    } else {
+      normalized += value;
+      starts.push(i);
+      ends.push(i + 1);
+    }
+  }
+  return { text: normalized, starts, ends };
+}
+
+function originalQuote(quote: string, sources: string[]): string | null {
+  if (!quote.trim()) return null;
+  // Prefer an exact match anywhere over a formatting-equivalent match.
+  for (const source of sources) if (source.includes(quote)) return quote;
+  const needle = normalizeQuote(quote.trim()).text;
+  for (const source of sources) {
+    const normalized = normalizeQuote(source);
+    const start = normalized.text.indexOf(needle);
+    if (start !== -1)
+      return source.slice(
+        normalized.starts[start],
+        normalized.ends[start + needle.length - 1],
+      );
+  }
+  return null;
+}
+
 export function validateFeedback(raw: unknown, s: PracticeSession) {
   const f = feedbackSchema.parse(raw);
+  const transcript = feedbackTranscript(s);
+  const userTurns = transcript
+    .filter((turn) => turn.speaker === "user")
+    .map((turn) => turn.text);
   const text = speakerText(s.fragments, "user");
-  for (const item of [...f.strengths, ...f.improvements])
-    if (!item.quote.trim() || !text.includes(item.quote))
-      throw new Error(
-        "The feedback contained a quote that could not be verified. Retry feedback to generate a grounded review.",
-      );
+  for (const group of ["strengths", "improvements"] as const)
+    for (const [index, item] of f[group].entries()) {
+      const quote = originalQuote(item.quote, userTurns);
+      if (quote === null)
+        throw new FeedbackValidationError(
+          "The feedback contained a quote that could not be verified. Your transcript is saved. Retry feedback to generate a grounded review.",
+          `${group}[${index}].quote`,
+        );
+      item.quote = quote;
+    }
   if (!f.insufficientEvidence && f.improvements.length !== 2)
-    throw new Error("The review was incomplete. Retry feedback.");
+    throw new FeedbackValidationError(
+      "The review was incomplete. Retry feedback.",
+      "improvements",
+    );
   if (s.config.relation !== "retry") f.comparison = null;
   if (s.config.mode === "coached") f.retryQuestion = null;
-  if (
-    f.retryQuestion &&
-    !speakerText(s.fragments, "assistant").includes(f.retryQuestion)
-  )
-    throw new Error(
-      "The suggested retry question could not be verified. Retry feedback.",
+  if (f.retryQuestion) {
+    const question = originalQuote(
+      f.retryQuestion,
+      transcript
+        .filter((turn) => turn.speaker === "assistant")
+        .map((turn) => turn.text),
     );
-  if (s.config.mode === "coached") f.retryQuestion = null;
+    if (question === null)
+      throw new FeedbackValidationError(
+        "The suggested retry question could not be verified. Retry feedback.",
+        "retryQuestion",
+      );
+    f.retryQuestion = question;
+  }
   const facts = (
     text +
     " " +
@@ -30,8 +116,9 @@ export function validateFeedback(raw: unknown, s: PracticeSession) {
   for (const part of f.outline)
     for (const number of part.text.match(/\b\d+(?:[.,]\d+)*(?:%?)/g) || [])
       if (!numbers.has(number))
-        throw new Error(
+        throw new FeedbackValidationError(
           "The answer outline included an unsupported number. Retry feedback for a grounded outline.",
+          "outline",
         );
   return f;
 }

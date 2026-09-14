@@ -282,6 +282,7 @@ test("feedback failure retains transcript and retries without another voice sess
     page.getByRole("heading", { name: "Your next improvements" }),
   ).toBeVisible();
   const after = await page.request.get("/api/sessions").then((r) => r.json());
+  await expect(page.getByRole("alert")).toHaveCount(0);
   expect(after.length).toBe(before.length);
 });
 test("connection loss retains the partial transcript for review", async ({
