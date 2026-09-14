@@ -159,7 +159,12 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    if (view !== "live" || state !== "Connected") return;
+    if (
+      view !== "live" ||
+      !startedAt.current ||
+      !["Connected", "Reconnecting"].includes(state)
+    )
+      return;
     const timer = setInterval(
       () => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)),
       1000,
@@ -185,6 +190,7 @@ export default function App() {
     setFragments([]);
     setMuted(false);
     setElapsed(0);
+    startedAt.current = 0;
     setState("Connecting");
     setView("live");
     setRecord(undefined);
@@ -192,7 +198,8 @@ export default function App() {
     const live = new LiveSession({
       state: (s) => {
         setState(s);
-        if (s === "Connected") startedAt.current = Date.now();
+        if (s === "Connected" && !startedAt.current)
+          startedAt.current = Date.now();
       },
       record: setRecord,
       fragments: setFragments,
@@ -632,13 +639,15 @@ export default function App() {
                 <h2>
                   {state === "Connecting"
                     ? "Making room for your voice…"
-                    : state === "Finishing"
-                      ? "Saving your conversation…"
-                      : state === "Save interrupted"
-                        ? "Your answer is still here."
-                        : muted
-                          ? "Take your time."
-                          : "You have the floor."}
+                    : state === "Reconnecting"
+                      ? "Waiting for the connection to return…"
+                      : state === "Finishing"
+                        ? "Saving your conversation…"
+                        : state === "Save interrupted"
+                          ? "Your answer is still here."
+                          : muted
+                            ? "Take your time."
+                            : "You have the floor."}
                 </h2>
                 <p>
                   {state === "Connected"
