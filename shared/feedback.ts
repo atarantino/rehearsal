@@ -18,7 +18,6 @@ export function validateFeedback(raw: unknown, s: PracticeSession) {
     throw new Error(
       "The suggested retry question could not be verified. Retry feedback.",
     );
-  if (s.config.mode === "coached") f.retryQuestion = null;
   const facts = (
     text +
     " " +
