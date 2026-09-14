@@ -149,7 +149,6 @@ export const review = action({
   args: { id: v.id("sessions") },
   returns: record,
   handler: async (ctx, { id }): Promise<Infer<typeof record>> => {
-    await ctx.runQuery(api.sessions.get, { id });
     const claimed = await ctx.runMutation(internal.sessions.claimFeedback, {
       id,
     });

@@ -12,7 +12,7 @@
 - **Auth:** Convex Auth
 - **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-14T16:50:34Z
+- **Last updated:** 2026-09-14T17:00:02Z
 
 ## Log
 
@@ -166,6 +166,12 @@ Resolved [PR #13](https://github.com/atarantino/rehearsal/pull/13) against curre
 Kept STUN and disconnect recovery alongside microphone/interviewer visualization; interruption warnings take priority over speaking labels (`src/live.ts`, `src/App.tsx`, `tests/browser.spec.ts`).
 All 57 tests passed: 17 unit/API, 22 Convex backend, and 18 browser tests. Application/backend typechecks and the production build passed.
 Pushed the merge and confirmed the PR was mergeable; corrected its description to reflect retained resume functionality. No deployment or live microphone test was performed, and these checks were not rerun for this log update.
+
+### 2026-09-14 - 0b43ffb: review simplification and conflict resolution
+Removed the redundant transcript read before feedback generation; the Convex claim mutation still checks authentication and session ownership (`convex/voice.ts`, `convex/sessions.ts`).
+Merged current main into [PR #10](https://github.com/atarantino/rehearsal/pull/10), preserving its voice reliability and grounded-feedback changes. Kept the stronger retry-question validation, which already includes the duplicate-reset removal (`shared/feedback.ts`).
+The application/backend typechecks, production build, and all 47 unit/API and Convex tests passed before pushing the merge. Existing tests were preserved.
+Confirmed the pushed PR was conflict-free and mergeable. These checks were performed during conflict resolution, not rerun for this log update; no deployment was performed.
 
 ## Submission readiness
 
