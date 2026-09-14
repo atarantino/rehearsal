@@ -29,3 +29,6 @@ dist-test/
 skills-lock.json
 
 .agents/skills/convex/
+
+# Agent worktree state, auth keys, fixtures, logs and artifacts
+.agent/

@@ -7,8 +7,8 @@
     "dev": "vite --host 127.0.0.1 --port 4317",
     "build": "tsc --noEmit && tsc --noEmit -p convex/tsconfig.json && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
-    "test": "tsx --test tests/*.test.ts && npm run test:backend",
-    "test:e2e": "VITE_LOCAL_MODE=true vite build --outDir dist-test && playwright test",
+    "test": "tsx --test tests/*.test.ts tests/*.test.mjs && npm run test:backend",
+    "test:e2e": "node scripts/verify.mjs --suite=legacy",
     "check:live": "tsx scripts/check-live.ts",
     "eval:feedback": "tsx scripts/evaluate-feedback.ts",
     "format": "prettier --write src server shared tests scripts convex/*.ts *.ts *.json index.html README.md",
@@ -18,7 +18,17 @@
     "deploy": "npx @convex-dev/static-hosting deploy",
     "test:backend": "vitest run",
     "postinstall": "node scripts/patch-agentmail.mjs",
-    "test:cloud": "node scripts/check-cloud.mjs"
+    "test:cloud": "node scripts/check-cloud.mjs",
+    "agent:setup": "node scripts/agent.mjs setup",
+    "agent:doctor": "node scripts/agent.mjs doctor",
+    "agent:up": "node scripts/agent.mjs up",
+    "agent:down": "node scripts/agent.mjs down",
+    "verify": "node scripts/verify.mjs",
+    "verify:fast": "node scripts/verify.mjs --suite=fast",
+    "test:convex:e2e": "node scripts/verify.mjs --suite=convex",
+    "agent:inspect": "node scripts/agent.mjs inspect",
+    "agent:scenario": "node scripts/agent.mjs scenario",
+    "agent:browser": "tsx scripts/agent-browser.ts"
   },
   "dependencies": {
     "@agentmail/convex": "0.1.0",
@@ -57,5 +67,8 @@
     "typescript": "^5.8.0",
     "vite": "^6.3.0",
     "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=22.6.0"
   }
 }

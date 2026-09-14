@@ -18,6 +18,19 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 
 Passkey signup is open without an invitation. Coached attempts last up to five minutes; mock interviews have a twenty-minute maximum. Feedback quotes must match current user speech exactly. Unsupported numeric outline claims are rejected. A retry keeps the question and compares attempts.
 
+## Agent setup and verification
+
+For an isolated worktree with no provider credentials:
+
+```sh
+npm run agent:setup
+npm run agent:up
+npm run verify
+npm run agent:down
+```
+
+This runs the current Convex app with real local authentication and deterministic external-provider fixtures. Every verification run creates its own backend and saves logs, browser reports, screenshots, and failure traces. See [agent development](docs/agent-development.md) for diagnostics, scenarios, worktree isolation, and live-service QA.
+
 ## Develop
 
 Use Node 22.6+ and desktop Chrome with passkey support.
@@ -48,9 +61,7 @@ The original personal Express app with local JSON history and Codex subscription
 
 ```sh
 node scripts/configure-cloud.mjs --prod --site=https://YOUR-PROD-DEPLOYMENT.convex.site
-npm run build
-npm test
-npm run test:e2e
+npm run verify
 npm run deploy
 ```
 
