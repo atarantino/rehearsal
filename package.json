@@ -18,7 +18,8 @@
     "deploy": "npx @convex-dev/static-hosting deploy",
     "test:backend": "vitest run tests/backend.convex.ts",
     "postinstall": "node scripts/patch-agentmail.mjs",
-    "test:cloud": "node scripts/check-cloud.mjs"
+    "test:cloud": "node scripts/check-cloud.mjs",
+    "test:resumes": "node scripts/check-resumes.mjs"
   },
   "dependencies": {
     "@agentmail/convex": "0.1.0",
@@ -33,7 +34,9 @@
     "express": "^5.1.0",
     "jose": "^6.2.12",
     "lucide-react": "^0.468.0",
+    "mammoth": "^1.12.3",
     "openai": "^7.15.0",
+    "pdfjs-dist": "^6.3.289",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "ws": "^8.21.3",

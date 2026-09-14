@@ -1,8 +1,18 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { record, fragment, brief, source, prepStatus } from "./validators";
+import {
+  record,
+  fragment,
+  brief,
+  source,
+  prepStatus,
+  resumeMode,
+} from "./validators";
 export default defineSchema({
-  users: defineTable({ username: v.union(v.string(), v.null()) }),
+  users: defineTable({
+    username: v.union(v.string(), v.null()),
+    resumeText: v.optional(v.string()),
+  }),
   sessions: defineTable({
     ownerId: v.id("users"),
     requestId: v.string(),
@@ -26,6 +36,8 @@ export default defineSchema({
     .index("by_sessionId_and_eventId", ["sessionId", "fragment.event_id"]),
   opportunities: defineTable({
     ownerId: v.id("users"),
+    resumeMode: v.optional(resumeMode),
+    resumeText: v.optional(v.string()),
     requestId: v.string(),
     input: v.string(),
     kind: v.union(v.literal("url"), v.literal("email")),

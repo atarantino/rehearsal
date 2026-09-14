@@ -118,7 +118,9 @@ async function speak(page: Page) {
 async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await page.goto("/");
   if (mode === "mock")
-    await page.getByRole("button", { name: /Mock interview A real conversation/ }).click();
+    await page
+      .getByRole("button", { name: /Mock interview A real conversation/ })
+      .click();
   if (mode === "coached")
     await page
       .getByRole("button", { name: /Coached practice One question/ })
@@ -264,7 +266,7 @@ test("feedback failure retains transcript and retries without another voice sess
   await page.goto("/");
   await page.getByLabel("What role are you preparing for?").fill("Designer");
   await page.getByText("Add a job description or background").click();
-  await page.getByLabel("Your experience").fill("TEST_FEEDBACK_FAILURE");
+  await page.getByLabel("Additional background").fill("TEST_FEEDBACK_FAILURE");
   await page.getByRole("button", { name: "Start practicing" }).click();
   await expect(page.getByRole("status")).toHaveText("Connected");
   await speak(page);
@@ -375,4 +377,99 @@ test("API rejection releases the microphone and returns to setup", async ({
       ),
     ),
   ).toBe(true);
+});
+
+test("imports real PDF and DOCX text for review before using it in practice", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add resume", exact: true }).click();
+  await page
+    .getByLabel("Import PDF or Word document")
+    .setInputFiles("tests/documents/resume.pdf");
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /Alex Example/,
+  );
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /12 people/,
+  );
+  await page
+    .getByLabel("Import PDF or Word document")
+    .setInputFiles("tests/documents/resume.docx");
+  await expect(page.getByRole("status")).toContainText("Imported resume.docx");
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /Led a design team of 12 people/,
+  );
+  await page
+    .getByLabel("Resume text", { exact: true })
+    .fill("Reviewed resume: led a team of 12 people.");
+  await page.getByRole("button", { name: "Save resume", exact: true }).click();
+  await page.getByLabel("What role are you preparing for?").fill("Designer");
+  await page.getByRole("button", { name: "Start practicing" }).click();
+  await expect(page.getByRole("status")).toHaveText("Connected");
+  const sessions = await page.request
+    .get("/api/sessions")
+    .then((r) => r.json());
+  expect(sessions[0].config.resumeText).toBe(
+    "Reviewed resume: led a team of 12 people.",
+  );
+  await speak(page);
+  await page.getByRole("button", { name: "End & review" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+});
+
+test("document failures keep the draft and offer pasting; column PDFs remain editable", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add resume", exact: true }).click();
+  await page.getByLabel("Resume text", { exact: true }).fill("Keep this draft");
+  for (const [file, message] of [
+    ["scan.pdf", "No readable text"],
+    ["protected.pdf", "password-protected"],
+  ]) {
+    await page
+      .getByLabel("Import PDF or Word document")
+      .setInputFiles(`tests/documents/${file}`);
+    await expect(page.getByRole("alert")).toContainText(message);
+    await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+      "Keep this draft",
+    );
+  }
+  await page
+    .getByLabel("Import PDF or Word document")
+    .setInputFiles({
+      name: "old.doc",
+      mimeType: "application/msword",
+      buffer: Buffer.from("old document"),
+    });
+  await expect(page.getByRole("alert")).toContainText("older .doc");
+  await page
+    .getByLabel("Import PDF or Word document")
+    .setInputFiles({
+      name: "broken.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("broken"),
+    });
+  await expect(page.getByRole("alert")).toContainText("could not be read");
+  await page
+    .getByLabel("Import PDF or Word document")
+    .setInputFiles("tests/documents/columns.pdf");
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /Experience/,
+  );
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /Research and prototyping/,
+  );
+  await page.getByLabel("Resume text", { exact: true }).fill("x".repeat(15001));
+  await expect(
+    page.getByRole("button", { name: "Save resume", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByText(/nothing has been cut/)).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Add resume", exact: true }).click();
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue("");
 });

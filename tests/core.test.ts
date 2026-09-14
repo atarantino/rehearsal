@@ -172,3 +172,28 @@ test("mock retry targets a verified question and rejects invented outline number
     ),
   );
 });
+
+test("resume facts reach coaching but cannot become quotes from the spoken answer", () => {
+  const s = record();
+  s.fragments = [f("1", answer)];
+  s.config.resumeText = "I led a design team of 12 people.";
+  const good = sampleFeedback(s);
+  const outline = [{ label: "Background", text: "Led a team of 12 people." }];
+  assert.deepEqual(validateFeedback({ ...good, outline }, s).outline, outline);
+  assert.throws(
+    () =>
+      validateFeedback(
+        {
+          ...good,
+          strengths: [{ ...good.strengths[0], quote: s.config.resumeText! }],
+        },
+        s,
+      ),
+    /quote/,
+  );
+  const live = liveConfig(s);
+  assert.ok(live.input[0].content[0].text.includes(s.config.resumeText));
+  assert.ok(
+    live.delegation.responses.instructions.includes(s.config.resumeText),
+  );
+});

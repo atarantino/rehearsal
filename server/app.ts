@@ -247,6 +247,9 @@ export function createApp(
     const previous = config.previousId
       ? await store.get(config.previousId)
       : undefined;
+    if (previous && config.relation === "retry") {
+      config.resumeText = previous.config.resumeText ?? "";
+    }
     const s: PracticeSession = {
       version: 1,
       id: randomUUID(),

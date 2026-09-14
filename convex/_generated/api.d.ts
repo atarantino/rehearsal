@@ -15,6 +15,7 @@ import type * as limits from "../limits.js";
 import type * as openai from "../openai.js";
 import type * as preparation from "../preparation.js";
 import type * as research from "../research.js";
+import type * as resumes from "../resumes.js";
 import type * as sessions from "../sessions.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   openai: typeof openai;
   preparation: typeof preparation;
   research: typeof research;
+  resumes: typeof resumes;
   sessions: typeof sessions;
   users: typeof users;
   validators: typeof validators;
