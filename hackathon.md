@@ -147,6 +147,13 @@ Chromium voice call stayed connected for 120 seconds through the forced Convex
 reconnect and received transcript events through 119.8 seconds.
 These changes improve failure handling; they cannot recover speech never transcribed.
 
+### 2026-09-14 - 71b6148
+Added browser-side PDF/DOCX resume import, editable defaults and opportunity overrides, and resume snapshots retained for retries (c8c6550; `src/Resume.tsx`, `src/resume.worker.ts`). Convex queries and ownership-checked mutations persist this context (`convex/resumes.ts`, `convex/schema.ts`, `convex/sessions.ts`).
+Clarified focused practice as one question with up to two follow-ups, and distinguished it from a full mock interview (3fb1ebd, merged in 0ea16ec; `src/App.tsx`, `README.md`).
+Made the waveform respond to both microphone and interviewer audio, with distinct speaking labels and colors, smoother motion, and CSS updates that avoid redrawing the whole app each frame (`src/live.ts`, `src/App.tsx`, `src/style.css`).
+Added an orbit, pulsing hints, and a moving activity indicator while “Finding the useful details” waits for feedback. Both animations respect reduced motion.
+Consulted Claude Opus through the CLI on audio measurement, rendering performance, accessibility, and animation design. The production build, TypeScript check, and all 13 browser tests passed; synthetic audio checks covered both voices, mute, silence, reduced motion, and pending feedback (`tests/browser.spec.ts`). These checks do not establish a new deployment or a human microphone test.
+
 ### 2026-09-14 - 9b931c2: grounded review recovery; repository reconciliation
 Made feedback quote matching tolerate whitespace and quotation-mark formatting while restoring the exact saved wording; invented claims and quotes stitched across speaker turns still fail (`shared/feedback.ts`, `server/prompts.ts`).
 Convex review now corrects the rejected response with a field-specific hint, saves actionable errors, and preserves transcripts for retry; the retry button clears stale feedback banners (`convex/voice.ts`, `src/App.tsx`). Opened [PR #12](https://github.com/atarantino/rehearsal/pull/12) from `fix/grounded-review-errors`.

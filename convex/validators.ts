@@ -1,9 +1,16 @@
 import { v } from "convex/values";
+export const resumeMode = v.union(
+  v.literal("default"),
+  v.literal("custom"),
+  v.literal("none"),
+);
 export const config = v.object({
   mode: v.union(v.literal("mock"), v.literal("coached")),
   role: v.string(),
   jobDescription: v.string(),
   background: v.string(),
+  resumeMode: v.optional(v.union(v.literal("default"), v.literal("none"))),
+  resumeText: v.optional(v.string()),
   previousId: v.optional(v.string()),
   relation: v.optional(v.union(v.literal("retry"), v.literal("next"))),
   opportunityId: v.optional(v.id("opportunities")),

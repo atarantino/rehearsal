@@ -15,7 +15,15 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 - **OpenAI** conducts spoken interviews with `gpt-live-1`, using `gpt-5.6-terra` for delegated reasoning and written coaching.
 - **Convex** stores accounts, opportunities, transcripts, feedback, and retry relationships. Durable workflows show progress live; scheduled functions close abandoned voice sessions; rate limits bound paid work.
 
-Passkey signup is open without an invitation. Coached attempts last up to five minutes; mock interviews have a twenty-minute maximum. Feedback quotes must match current user speech exactly. Unsupported numeric outline claims are rejected. A retry keeps the question and compares attempts.
+Passkey signup is open without an invitation. Focused practice covers one interview question with up to two follow-ups and lasts up to five minutes per attempt; mock interviews have a twenty-minute maximum. Feedback quotes must match current user speech exactly. Unsupported numeric outline claims are rejected. A retry keeps the question and compares attempts.
+
+## Resumes
+
+Save an optional default resume in **Your resume**. Paste text or import a text-based PDF or Word `.docx`, review the extracted text, then save. Imports run in a browser worker; original documents are not uploaded or retained. Files are limited to 5 MB, PDFs to 10 pages, and saved text to 15,000 characters. Scanned or password-protected PDFs and older `.doc` files need an unlocked/text-based export or pasted text. Review column layouts carefully; extraction does not preserve formatting. Oversized text must be edited before saving and is never silently cut.
+
+Each opportunity can use the current default, a separate resume, or no resume. Switching between these options preserves the saved custom text; a separate confirmed delete action removes it and selects no resume. Changing opportunities clears the previous practice setup: choose a question from the newly selected opportunity to use its resume. Incoming opportunities leave the current selection and any draft in place. The default is resolved when a new practice session starts. Sessions retain their resume text and retries reuse that snapshot. Removing a default does not erase saved session context or opportunity-specific resumes; delete sessions to remove their retained context. Additional background notes remain separate. Resumes inform interview questions and answer outlines, while feedback quotes must still come from the current spoken answer. Public company research does not receive resume text.
+
+Saved defaults and opportunity overrides use the signed-in Convex workspace. Local mode supports importing/pasting a resume for the current practice, retained in that session's history.
 
 ## Develop
 
@@ -59,7 +67,7 @@ The AgentMail component is pinned to 0.1.0. A version-checked postinstall patch 
 
 ## Data and limits
 
-Credentials stay on the backend. Audio goes through OpenAI WebRTC; Rehearsal does not record or save audio. Convex stores invitation text, research, browser-reported transcript fragments, and feedback under the signed-in account. Transcripts are coaching evidence, not independently verified provider records. Session deletion removes its transcript and feedback; opportunity records remain.
+Credentials stay on the backend. Audio goes through OpenAI WebRTC; Rehearsal does not record or save audio. Convex stores resume text, invitation text, research, browser-reported transcript fragments, and feedback under the signed-in account. Transcripts are coaching evidence, not independently verified provider records. Session deletion removes its transcript and feedback; opportunity records remain.
 
 Email text is processed; attachments are not imported. Firecrawl receives public URLs and search terms. Enabling replies sends an authenticated workspace link in the original thread. The app requests `store: false` for OpenAI calls; this is not a claim about provider-wide retention.
 
@@ -68,3 +76,5 @@ Passkeys use Convex Auth v2 alpha. Account recovery is not implemented, so keep 
 Automated checks cover ownership, transcript deduplication, feedback leases, cleanup, webhook signatures, and browser practice/retry flows. Real-service checks use synthetic audio and invitations; a human microphone listening check remains part of final demo rehearsal.
 
 Run `node scripts/check-cloud.mjs --url=https://YOUR-APP.convex.site` for a real passkey smoke check. Add `--audio=/absolute/path/to/synthetic.wav` to exercise two paid voice attempts and their comparison.
+
+Run `npm run test:resumes` with Vite and a **local** Convex backend running to check authenticated resume persistence, selection changes, draft retention when new opportunities arrive, and explicit deletion. The script verifies that both endpoints are local, creates a synthetic passkey account and opportunities, and calls no paid APIs. Set the local backend’s `SITE_URL` to the Vite origin (default `http://localhost:4317`).

@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -28,6 +34,7 @@ import { api } from "./api";
 import { cloudEnabled, convex } from "./convex";
 import { api as backend } from "../convex/_generated/api";
 import { Preparation } from "./Preparation";
+import { DefaultResume, PracticeResume, LocalResume } from "./Resume";
 import { SignOut } from "./Auth";
 import { LiveSession } from "./live";
 import { captions, clock } from "./transcript";
@@ -79,13 +86,7 @@ function Transcript({
     </div>
   );
 }
-function Wave({
-  level = 0,
-  active = false,
-}: {
-  level?: number;
-  active?: boolean;
-}) {
+function Wave({ active = false }: { active?: boolean }) {
   return (
     <div className={`wave ${active ? "active" : ""}`} aria-hidden="true">
       {[
@@ -94,10 +95,13 @@ function Wave({
       ].map((v, i) => (
         <i
           key={i}
-          style={{
-            height: `${12 + v * (active ? 20 + level * 120 : 72)}px`,
-            opacity: 0.4 + v * 0.6,
-          }}
+          style={
+            {
+              height: `${12 + v * 72}px`,
+              "--bar-weight": v,
+              opacity: 0.4 + v * 0.6,
+            } as CSSProperties
+          }
         />
       ))}
     </div>
@@ -119,7 +123,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [state, setState] = useState("Connecting");
-  const [level, setLevel] = useState(0);
+  const [speaker, setSpeaker] = useState<"user" | "assistant" | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const [muted, setMuted] = useState(false);
   const [mutePending, setMutePending] = useState(false);
   const [showCaptions, setShowCaptions] = useState(false);
@@ -187,6 +192,7 @@ export default function App() {
     setBusy(true);
     setFragments([]);
     setMuted(false);
+    setSpeaker(null);
     setElapsed(0);
     startedAt.current = 0;
     setState("Connecting");
@@ -201,7 +207,14 @@ export default function App() {
       },
       record: setRecord,
       fragments: setFragments,
-      level: setLevel,
+      level: (levels) => {
+        stage.current?.style.setProperty("--voice-user", String(levels.user));
+        stage.current?.style.setProperty(
+          "--voice-assistant",
+          String(levels.assistant),
+        );
+      },
+      speaker: setSpeaker,
       error: setError,
       ended: (s) => {
         controller.current = undefined;
@@ -423,8 +436,24 @@ export default function App() {
                   can use.
                 </p>
               </div>
+              {cloudEnabled && <DefaultResume />}
               {cloudEnabled && (
                 <Preparation
+                  onOpportunityChange={() =>
+                    setConfig((current) =>
+                      current.opportunityId
+                        ? {
+                            ...current,
+                            opportunityId: undefined,
+                            startingQuestion: undefined,
+                            role: "",
+                            jobDescription: "",
+                            previousId: undefined,
+                            relation: undefined,
+                          }
+                        : current,
+                    )
+                  }
                   onSelect={(patch) => {
                     setConfig({ ...config, ...patch });
                     document
@@ -453,7 +482,10 @@ export default function App() {
                         </span>
                       </span>
                       <strong>Mock interview</strong>
-                      <p>A real conversation, with feedback at the end.</p>
+                      <p>
+                        Practice a full interview across several questions. Get
+                        feedback at the end.
+                      </p>
                       <span className="duration">
                         <Clock3 size={13} /> About 15 minutes
                       </span>
@@ -470,8 +502,11 @@ export default function App() {
                           {config.mode === "coached" && <i />}
                         </span>
                       </span>
-                      <strong>Coached practice</strong>
-                      <p>One question. Useful feedback. Another try.</p>
+                      <strong>Focused practice</strong>
+                      <p>
+                        Practice one interview question with up to two
+                        follow-ups. Get feedback, then try again.
+                      </p>
                       <span className="duration">
                         <Clock3 size={13} /> Up to 5 minutes per try
                       </span>
@@ -523,10 +558,10 @@ export default function App() {
                           })
                         }
                       />
-                      <label htmlFor="background">Your experience</label>
+                      <label htmlFor="background">Additional background</label>
                       <textarea
                         id="background"
-                        placeholder="Paste your résumé or a few notes about your work…"
+                        placeholder="Add anything beyond your resume that would help your interviewer…"
                         maxLength={15000}
                         value={config.background}
                         onChange={(e) =>
@@ -535,6 +570,22 @@ export default function App() {
                       />
                     </div>
                   </details>
+                  {cloudEnabled ? (
+                    <PracticeResume
+                      opportunityId={config.opportunityId}
+                      mode={config.resumeMode}
+                      onMode={(resumeMode) =>
+                        setConfig({ ...config, resumeMode })
+                      }
+                    />
+                  ) : (
+                    <LocalResume
+                      text={config.resumeText ?? ""}
+                      onSave={(resumeText) =>
+                        setConfig({ ...config, resumeText })
+                      }
+                    />
+                  )}
                   {!configured && (
                     <p className="inline-notice">
                       Voice practice is temporarily unavailable. Please try
@@ -615,7 +666,7 @@ export default function App() {
                 <span className="eyebrow">
                   {config.mode === "mock"
                     ? "MOCK INTERVIEW"
-                    : "COACHED PRACTICE"}
+                    : "FOCUSED PRACTICE"}
                 </span>
                 <span className="timer">
                   <Clock3 size={15} />
@@ -629,7 +680,14 @@ export default function App() {
                   ? "Let your experience lead the conversation."
                   : "One answer at a time. Review when you’re ready."}
               </p>
-              <div className="conversation-stage">
+              <div
+                ref={stage}
+                className="conversation-stage"
+                data-speaker={
+                  state === "Connected" ? speaker || "idle" : "idle"
+                }
+                data-muted={muted}
+              >
                 <div
                   className={`connection-status ${state === "Connected" ? "connected" : ""}`}
                   role="status"
@@ -637,10 +695,10 @@ export default function App() {
                   <i />
                   {state}
                 </div>
-                <Wave
-                  active={state === "Connected"}
-                  level={muted ? 0 : level}
-                />
+                <div className="voice-visualizer">
+                  <div className="voice-halo" aria-hidden="true" />
+                  <Wave active={state === "Connected"} />
+                </div>
                 <h2>
                   {state === "Connecting"
                     ? "Making room for your voice…"
@@ -650,9 +708,13 @@ export default function App() {
                         ? "Your answer is still here."
                         : state.startsWith("Connection interrupted")
                           ? "Pause for a moment."
-                          : muted
-                            ? "Take your time."
-                            : "You have the floor."}
+                          : speaker === "assistant"
+                            ? "Interviewer speaking."
+                            : muted
+                              ? "Take your time."
+                              : speaker === "user"
+                                ? "You’re speaking."
+                                : "You have the floor."}
                 </h2>
                 <p>
                   {state === "Connected"
@@ -667,11 +729,7 @@ export default function App() {
                 >
                   <Mic size={14} />
                   <div>
-                    <i
-                      style={{
-                        width: `${muted ? 0 : Math.max(3, level * 100)}%`,
-                      }}
-                    />
+                    <i />
                   </div>
                   <span>{muted ? "Muted" : "Microphone"}</span>
                 </div>
@@ -754,7 +812,7 @@ export default function App() {
                   <p className="eyebrow">
                     {record.config.mode === "mock"
                       ? "MOCK INTERVIEW"
-                      : "COACHED PRACTICE"}{" "}
+                      : "FOCUSED PRACTICE"}{" "}
                     ·{" "}
                     {new Date(record.createdAt).toLocaleDateString(undefined, {
                       month: "short",
@@ -796,8 +854,12 @@ export default function App() {
                 </div>
               )}
               {reviewing ? (
-                <div className="review-loading" role="status">
-                  <div className="loading-orbit">
+                <div
+                  className="review-loading"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="loading-orbit" aria-hidden="true">
                     <Sparkles size={25} />
                   </div>
                   <h2>Finding the useful details.</h2>
@@ -805,6 +867,16 @@ export default function App() {
                     Looking at your answer, your examples, and what could be
                     clearer.
                   </p>
+                  <div className="review-detail-hints" aria-hidden="true">
+                    <span>Your answer</span>
+                    <i />
+                    <span>Your examples</span>
+                    <i />
+                    <span>What could be clearer</span>
+                  </div>
+                  <div className="review-processing-track" aria-hidden="true">
+                    <i />
+                  </div>
                 </div>
               ) : record.feedback ? (
                 <>
@@ -1003,7 +1075,7 @@ export default function App() {
                           <p>
                             {s.config.mode === "mock"
                               ? "Mock interview"
-                              : "Coached practice"}
+                              : "Focused practice"}
                             {s.config.relation === "retry"
                               ? " · Repeat attempt"
                               : ""}

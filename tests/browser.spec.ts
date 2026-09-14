@@ -7,10 +7,28 @@ async function fakeVoice(page: Page) {
     w.__peerClosed = false;
     w.__sent = [];
     const context = new AudioContext();
-    const stream = context.createMediaStreamDestination().stream;
+    const makeVoice = () => {
+      const destination = context.createMediaStreamDestination();
+      const tone = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0;
+      tone.connect(gain).connect(destination);
+      tone.start();
+      return { stream: destination.stream, gain };
+    };
+    const user = makeVoice();
+    const assistant = makeVoice();
+    const stream = user.stream;
+    w.__voiceLevels = (you: number, interviewer: number) => {
+      user.gain.gain.value = you;
+      assistant.gain.gain.value = interviewer;
+    };
     w.__tracks = stream.getTracks();
     Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      value: async () => stream,
+      value: async () => {
+        await context.resume();
+        return stream;
+      },
       configurable: true,
     });
     class Channel {
@@ -78,6 +96,7 @@ async function fakeVoice(page: Page) {
         this.localDescription = d;
       }
       async setRemoteDescription() {
+        this.ontrack?.({ track: assistant.stream.getAudioTracks()[0] });
         setTimeout(
           () =>
             w.__channel.emit({
@@ -125,11 +144,13 @@ async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await page.goto("/");
   if (mode === "mock")
     await page
-      .getByRole("button", { name: /Mock interview A real conversation/ })
+      .getByRole("button", { name: /Mock interview Practice a full interview/ })
       .click();
   if (mode === "coached")
     await page
-      .getByRole("button", { name: /Coached practice One question/ })
+      .getByRole("button", {
+        name: /Focused practice Practice one interview question with up to two follow-ups/,
+      })
       .click();
   await page
     .getByLabel("What role are you preparing for?")
@@ -180,6 +201,99 @@ test("setup is usable at desktop and mobile widths", async ({ page }) => {
     fullPage: true,
   });
 });
+test("wave follows both audio streams, respects mute and reduced motion", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  const stage = page.locator(".conversation-stage");
+  await expect(stage).toHaveAttribute("data-speaker", "idle");
+  await page.evaluate(() => (window as any).__voiceLevels(0, 0.12));
+  await expect(
+    page.getByRole("heading", { name: "Interviewer speaking." }),
+  ).toBeVisible();
+  await expect(stage).toHaveAttribute("data-speaker", "assistant");
+  await page.screenshot({
+    path: "test-results/voice-interviewer.png",
+    fullPage: true,
+  });
+  await page.evaluate(() => (window as any).__voiceLevels(0.12, 0));
+  await expect(
+    page.getByRole("heading", { name: "You’re speaking." }),
+  ).toBeVisible();
+  await expect(stage).toHaveAttribute("data-speaker", "user");
+  await page.getByRole("button", { name: "Mute", exact: true }).click();
+  await expect(stage).toHaveAttribute("data-speaker", "idle");
+  await page.evaluate(() => (window as any).__voiceLevels(0.12, 0.12));
+  await expect(stage).toHaveAttribute("data-speaker", "assistant");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const bars = stage.locator(".wave i");
+  const before = await bars.evaluateAll((nodes) =>
+    nodes.map((n) => getComputedStyle(n).transform),
+  );
+  await page.evaluate(() => (window as any).__voiceLevels(0, 0));
+  await expect(stage).toHaveAttribute("data-speaker", "idle");
+  expect(
+    await bars.evaluateAll((nodes) =>
+      nodes.map((n) => getComputedStyle(n).transform),
+    ),
+  ).toEqual(before);
+  await page
+    .getByRole("button", { name: "Review answer", exact: true })
+    .click();
+  await expect(page.getByText("Limited evidence")).toBeVisible();
+});
+
+test("feedback animation stays visible while work is pending and settles for reduced motion", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  await speak(page);
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  await page.route("**/api/sessions/*/feedback", async (route) => {
+    await pending;
+    await route.continue();
+  });
+  await page
+    .getByRole("button", { name: "Review answer", exact: true })
+    .click();
+  const loading = page.locator(".review-loading");
+  await expect(loading).toContainText("Finding the useful details.");
+  expect(
+    await loading.evaluate(
+      (node) => node.getAnimations({ subtree: true }).length,
+    ),
+  ).toBeGreaterThan(0);
+  await page.screenshot({
+    path: "test-results/review-processing.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/review-processing-mobile.png",
+    fullPage: true,
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(
+    await loading.evaluate(
+      (node) => node.getAnimations({ subtree: true }).length,
+    ),
+  ).toBe(0);
+  finish();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+  await expect(loading).toHaveCount(0);
+});
 test("coached flow, mute, captions, review, retry comparison, history and deletion", async ({
   page,
 }) => {
@@ -224,11 +338,11 @@ test("coached flow, mute, captions, review, retry comparison, history and deleti
   await page.getByRole("button", { name: /Session history/ }).click();
   await expect(
     page
-      .getByRole("button", { name: /Product manager Coached practice/ })
+      .getByRole("button", { name: /Product manager Focused practice/ })
       .first(),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: /Product manager Coached practice/ })
+    .getByRole("button", { name: /Product manager Focused practice/ })
     .first()
     .click();
   await expect(
@@ -242,7 +356,7 @@ test("coached flow, mute, captions, review, retry comparison, history and deleti
     page.getByRole("heading", { name: /Your practice/ }),
   ).toBeVisible();
 });
-test("mock interview completes and next question starts coached practice", async ({
+test("mock interview completes and next question starts focused practice", async ({
   page,
 }) => {
   await fakeVoice(page);
@@ -291,7 +405,7 @@ test("feedback failure retains transcript and retries without another voice sess
   await page.goto("/");
   await page.getByLabel("What role are you preparing for?").fill("Designer");
   await page.getByText("Add a job description or background").click();
-  await page.getByLabel("Your experience").fill("TEST_FEEDBACK_FAILURE");
+  await page.getByLabel("Additional background").fill("TEST_FEEDBACK_FAILURE");
   await page.getByRole("button", { name: "Start practicing" }).click();
   await expect(page.getByRole("status")).toHaveText("Connected");
   await speak(page);
@@ -487,4 +601,95 @@ test("API rejection releases the microphone and returns to setup", async ({
       ),
     ),
   ).toBe(true);
+});
+
+test("imports real PDF and DOCX text for review before using it in practice", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add resume", exact: true }).click();
+  await page
+    .getByLabel("Import PDF or Word document")
+    .setInputFiles("tests/documents/resume.pdf");
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /Alex Example/,
+  );
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /12 people/,
+  );
+  await page
+    .getByLabel("Import PDF or Word document")
+    .setInputFiles("tests/documents/resume.docx");
+  await expect(page.getByRole("status")).toContainText("Imported resume.docx");
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /Led a design team of 12 people/,
+  );
+  await page
+    .getByLabel("Resume text", { exact: true })
+    .fill("Reviewed resume: led a team of 12 people.");
+  await page.getByRole("button", { name: "Save resume", exact: true }).click();
+  await page.getByLabel("What role are you preparing for?").fill("Designer");
+  await page.getByRole("button", { name: "Start practicing" }).click();
+  await expect(page.getByRole("status")).toHaveText("Connected");
+  const sessions = await page.request
+    .get("/api/sessions")
+    .then((r) => r.json());
+  expect(sessions[0].config.resumeText).toBe(
+    "Reviewed resume: led a team of 12 people.",
+  );
+  await speak(page);
+  await page.getByRole("button", { name: "End & review" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your next improvements" }),
+  ).toBeVisible();
+});
+
+test("document failures keep the draft and offer pasting; column PDFs remain editable", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add resume", exact: true }).click();
+  await page.getByLabel("Resume text", { exact: true }).fill("Keep this draft");
+  for (const [file, message] of [
+    ["scan.pdf", "No readable text"],
+    ["protected.pdf", "password-protected"],
+  ]) {
+    await page
+      .getByLabel("Import PDF or Word document")
+      .setInputFiles(`tests/documents/${file}`);
+    await expect(page.getByRole("alert")).toContainText(message);
+    await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+      "Keep this draft",
+    );
+  }
+  await page.getByLabel("Import PDF or Word document").setInputFiles({
+    name: "old.doc",
+    mimeType: "application/msword",
+    buffer: Buffer.from("old document"),
+  });
+  await expect(page.getByRole("alert")).toContainText("older .doc");
+  await page.getByLabel("Import PDF or Word document").setInputFiles({
+    name: "broken.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("broken"),
+  });
+  await expect(page.getByRole("alert")).toContainText("could not be read");
+  await page
+    .getByLabel("Import PDF or Word document")
+    .setInputFiles("tests/documents/columns.pdf");
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /Experience/,
+  );
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue(
+    /Research and prototyping/,
+  );
+  await page.getByLabel("Resume text", { exact: true }).fill("x".repeat(15001));
+  await expect(
+    page.getByRole("button", { name: "Save resume", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByText(/nothing has been cut/)).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Add resume", exact: true }).click();
+  await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue("");
 });

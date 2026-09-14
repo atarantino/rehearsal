@@ -36,9 +36,9 @@ The server binds to `127.0.0.1`. This is a personal, local application; it has n
 ## Practice
 
 - **Mock interview:** A realistic conversation with follow-ups, a 15-minute target, and a 20-minute hard limit. End & review closes the voice session and starts written coaching.
-- **Coached practice:** A single question with up to two follow-ups. Click Review answer when ready. Each attempt has a five-minute limit.
+- **Focused practice:** One interview question with up to two follow-ups. Click Review answer when ready. Each attempt has a five-minute limit.
 - **Review:** Specific strengths, two supported improvements when evidence permits, an answer outline, and questions for missing details. Short or partial answers are explicitly labeled. No numeric scores or personality judgments.
-- **Retry:** Rehearse the same coached question; after a mock interview, the coach selects a question from that interview to practice. The new review compares attempts. Next question starts another coached round.
+- **Retry:** Rehearse the same focused practice question; after a mock interview, the coach selects a question from that interview to practice. The new review compares attempts. Next question starts another focused practice round.
 - **History:** Reopen saved transcripts and feedback, or delete a session. Deleting a parent does not delete later attempts; comparisons unavailable after a parent is deleted are omitted.
 
 The microphone control waits for the service acknowledgment. Captions are optional and can overlap. Pauses never trigger a review automatically. If a save fails, keep the tab open and use Retry saving. If feedback fails, Retry feedback uses the stored transcript without creating another voice session.

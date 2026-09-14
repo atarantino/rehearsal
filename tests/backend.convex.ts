@@ -495,3 +495,263 @@ describe("untrusted inputs", () => {
     ).toThrow();
   });
 });
+
+describe("saved resumes", () => {
+  async function opportunity(
+    t: Awaited<ReturnType<typeof setup>>["t"],
+    ownerId: Awaited<ReturnType<typeof setup>>["alice"],
+  ) {
+    return t.run((ctx) =>
+      ctx.db.insert("opportunities", {
+        ownerId,
+        requestId: "resume-prep",
+        input: "https://convex.dev/jobs",
+        kind: "url",
+        status: "ready",
+        sources: [],
+        receivedAt: 1,
+        brief: {
+          company: "Example",
+          role: "Designer",
+          interviewDate: null,
+          preparation: [],
+          summary: "Design role",
+          focusAreas: [],
+          questions: ["Describe a project."],
+          uncertainties: [],
+        },
+      }),
+    );
+  }
+  it("keeps defaults private and validates text without truncation", async () => {
+    const { t, a, b } = await setup();
+    await expect(t.query(api.resumes.get, {})).rejects.toThrow("Sign in");
+    await expect(
+      t.mutation(api.resumes.saveDefault, { text: "secret" }),
+    ).rejects.toThrow("Sign in");
+    await a.mutation(api.resumes.saveDefault, { text: "My experience" });
+    expect((await a.query(api.resumes.get, {})).defaultText).toBe(
+      "My experience",
+    );
+    expect((await b.query(api.resumes.get, {})).defaultText).toBe("");
+    for (const text of [" ", "x".repeat(15001)])
+      await expect(
+        a.mutation(api.resumes.saveDefault, { text }),
+      ).rejects.toThrow();
+    expect((await a.query(api.resumes.get, {})).defaultText).toBe(
+      "My experience",
+    );
+    await a.mutation(api.resumes.saveDefault, { text: null });
+    expect((await a.query(api.resumes.get, {})).defaultText).toBe("");
+  });
+  it("checks ownership on opportunity reads and all selection writes", async () => {
+    const { t, a, b, alice } = await setup();
+    const id = await opportunity(t, alice);
+    await expect(
+      b.query(api.resumes.get, { opportunityId: id }),
+    ).rejects.toThrow("not found");
+    await expect(
+      b.mutation(api.resumes.removeOpportunityResume, { opportunityId: id }),
+    ).rejects.toThrow("not found");
+    await expect(
+      t.mutation(api.resumes.removeOpportunityResume, { opportunityId: id }),
+    ).rejects.toThrow("Sign in");
+    for (const mode of ["default", "none", "custom"] as const)
+      await expect(
+        b.mutation(api.resumes.saveOpportunity, {
+          opportunityId: id,
+          mode,
+          text: "foreign resume",
+        }),
+      ).rejects.toThrow("not found");
+    await expect(
+      a.mutation(api.resumes.saveOpportunity, {
+        opportunityId: id,
+        mode: "custom",
+        text: " ",
+      }),
+    ).rejects.toThrow("Paste");
+  });
+  it("resolves the current default at start, ignores client snapshots, and freezes retry context", async () => {
+    const { a } = await setup();
+    await a.mutation(api.resumes.saveDefault, { text: "Original experience" });
+    const id = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, resumeText: "forged", background: "Original notes" },
+      requestId: "original",
+    });
+    expect((await a.query(api.sessions.get, { id })).config.resumeText).toBe(
+      "Original experience",
+    );
+    await a.mutation(api.sessions.finalize, {
+      id,
+      confirmed: true,
+      reason: "done",
+    });
+    await a.mutation(api.resumes.saveDefault, { text: "New experience" });
+    const retryId = await a.mutation(internal.sessions.reserve, {
+      config: {
+        ...config,
+        previousId: id,
+        relation: "retry",
+        resumeText: "changed",
+      },
+      requestId: "retry-resume",
+    });
+    const retry = await a.query(api.sessions.get, { id: retryId });
+    expect(retry.config.resumeText).toBe("Original experience");
+    expect(retry.config.background).toBe("Original notes");
+    await a.mutation(api.sessions.finalize, {
+      id: retryId,
+      confirmed: true,
+      reason: "done",
+    });
+    const nextId = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, previousId: retryId, relation: "next" },
+      requestId: "next-resume",
+    });
+    expect(
+      (await a.query(api.sessions.get, { id: nextId })).config.resumeText,
+    ).toBe("New experience");
+  });
+  it("uses independent opportunity overrides and explicit none without changing saved sessions", async () => {
+    const { t, a, alice } = await setup();
+    const one = await opportunity(t, alice);
+    const two = await opportunity(t, alice);
+    await a.mutation(api.resumes.saveDefault, { text: "General experience" });
+    await a.mutation(api.resumes.saveOpportunity, {
+      opportunityId: one,
+      mode: "custom",
+      text: "Specific experience",
+    });
+    for (const [opportunityId, expected] of [
+      [one, "Specific experience"],
+      [two, "General experience"],
+    ] as const) {
+      const id = await a.mutation(internal.sessions.reserve, {
+        config: {
+          ...config,
+          opportunityId,
+          resumeText: "forged",
+          resumeMode: "none",
+        },
+        requestId: opportunityId,
+      });
+      expect((await a.query(api.sessions.get, { id })).config.resumeText).toBe(
+        expected,
+      );
+      await a.mutation(api.sessions.finalize, {
+        id,
+        confirmed: true,
+        reason: "done",
+      });
+    }
+    await a.mutation(api.resumes.saveOpportunity, {
+      opportunityId: one,
+      mode: "none",
+    });
+    expect(
+      (await a.query(api.resumes.get, { opportunityId: one })).customText,
+    ).toBe("Specific experience");
+    const id = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, opportunityId: one },
+      requestId: "none",
+    });
+    expect((await a.query(api.sessions.get, { id })).config.resumeText).toBe(
+      "",
+    );
+    await a.mutation(api.sessions.finalize, {
+      id,
+      confirmed: true,
+      reason: "done",
+    });
+    await a.mutation(api.resumes.saveOpportunity, {
+      opportunityId: one,
+      mode: "default",
+    });
+    const newId = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, opportunityId: one },
+      requestId: "default-again",
+    });
+    expect(
+      (await a.query(api.sessions.get, { id: newId })).config.resumeText,
+    ).toBe("General experience");
+    expect((await a.query(api.sessions.get, { id })).config.resumeText).toBe(
+      "",
+    );
+  });
+  it("supports legacy records and practice without a resume", async () => {
+    const { a } = await setup();
+    expect(await a.query(api.resumes.get, {})).toEqual({
+      mode: "default",
+      customText: "",
+      defaultText: "",
+      opportunityLabel: "",
+    });
+    await a.mutation(api.resumes.saveDefault, { text: "Experience" });
+    const id = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, resumeMode: "none" },
+      requestId: "no-resume",
+    });
+    expect((await a.query(api.sessions.get, { id })).config.resumeText).toBe(
+      "",
+    );
+  });
+  it("preserves custom text through selection changes and deletes it only explicitly", async () => {
+    const { t, a, alice } = await setup();
+    const one = await opportunity(t, alice);
+    const two = await opportunity(t, alice);
+    await a.mutation(api.resumes.saveDefault, { text: "Default experience" });
+    for (const opportunityId of [one, two])
+      await a.mutation(api.resumes.saveOpportunity, {
+        opportunityId,
+        mode: "custom",
+        text: "Tailored experience",
+      });
+    const sessionId = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, opportunityId: one },
+      requestId: "snapshot-before-delete",
+    });
+    await a.mutation(api.sessions.finalize, {
+      id: sessionId,
+      confirmed: true,
+      reason: "done",
+    });
+    for (const mode of ["default", "none"] as const) {
+      await a.mutation(api.resumes.saveOpportunity, {
+        opportunityId: one,
+        mode,
+      });
+      const saved = await a.query(api.resumes.get, { opportunityId: one });
+      expect(saved.mode).toBe(mode);
+      expect(saved.customText).toBe("Tailored experience");
+      await a.mutation(api.resumes.saveOpportunity, {
+        opportunityId: one,
+        mode: "custom",
+        text: saved.customText,
+      });
+    }
+    await a.mutation(api.resumes.removeOpportunityResume, {
+      opportunityId: one,
+    });
+    expect(
+      await a.query(api.resumes.get, { opportunityId: one }),
+    ).toMatchObject({
+      mode: "none",
+      customText: "",
+      defaultText: "Default experience",
+    });
+    expect(
+      (await a.query(api.resumes.get, { opportunityId: two })).customText,
+    ).toBe("Tailored experience");
+    expect(
+      (await a.query(api.sessions.get, { id: sessionId })).config.resumeText,
+    ).toBe("Tailored experience");
+    const retry = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, previousId: sessionId, relation: "retry" },
+      requestId: "retry-after-delete",
+    });
+    expect(
+      (await a.query(api.sessions.get, { id: retry })).config.resumeText,
+    ).toBe("Tailored experience");
+  });
+});

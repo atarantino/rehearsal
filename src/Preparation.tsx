@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import {
   Mail,
@@ -11,10 +11,13 @@ import {
 import { api } from "../convex/_generated/api";
 import type { SessionConfig } from "../shared/types";
 import type { Id } from "../convex/_generated/dataModel";
+import { OpportunityResume } from "./Resume";
 export function Preparation({
   onSelect,
+  onOpportunityChange,
 }: {
   onSelect: (config: Partial<SessionConfig>) => void;
+  onOpportunityChange: () => void;
 }) {
   const opportunities = useQuery(api.preparation.list, {});
   const inbox = useQuery(api.email.inbox, {});
@@ -22,21 +25,44 @@ export function Preparation({
   const retry = useMutation(api.preparation.retry);
   const createInbox = useAction(api.email.create);
   const [url, setUrl] = useState("");
-  const [selected, setSelected] = useState<string | null>(() =>
+  const [initialSelection] = useState(() =>
     new URLSearchParams(location.search).get("prep"),
   );
+  const [selected, setSelected] = useState<Id<"opportunities"> | null>(null);
+  const selectedOpportunity = useQuery(
+    api.preparation.get,
+    selected ? { id: selected } : "skip",
+  );
+  // Pin the first selection before rendering an editor. New arrivals must not move it,
+  // even when the selected record ages out of the recent-opportunity query.
+  useEffect(() => {
+    if (!selected && opportunities?.length)
+      setSelected(
+        (
+          opportunities.find((o) => o._id === initialSelection) ??
+          opportunities[0]
+        )._id,
+      );
+  }, [selected, opportunities, initialSelection]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [autoReply, setAutoReply] = useState(true);
   const [copied, setCopied] = useState(false);
   const current =
-    opportunities?.find((o) => o._id === selected) ?? opportunities?.[0];
+    selectedOpportunity ?? opportunities?.find((o) => o._id === selected);
+  const visibleOpportunities =
+    current &&
+    opportunities &&
+    !opportunities.some((o) => o._id === current._id)
+      ? [current, ...opportunities]
+      : opportunities;
   const b = current?.brief;
   async function submit() {
     setBusy(true);
     setError("");
     try {
       const id = await create({ url, requestId: crypto.randomUUID() });
+      onOpportunityChange();
       setSelected(id);
       setUrl("");
     } catch (e) {
@@ -155,9 +181,12 @@ export function Preparation({
           <select
             id="opportunity"
             value={current?._id ?? ""}
-            onChange={(e) => setSelected(e.target.value)}
+            onChange={(e) => {
+              onOpportunityChange();
+              setSelected(e.target.value as Id<"opportunities">);
+            }}
           >
-            {opportunities.map((o) => (
+            {visibleOpportunities?.map((o) => (
               <option key={o._id} value={o._id}>
                 {o.brief
                   ? `${o.brief.role || "Role to confirm"} · ${o.brief.company}`
@@ -168,6 +197,9 @@ export function Preparation({
               </option>
             ))}
           </select>
+          {current && (
+            <OpportunityResume key={current._id} opportunityId={current._id} />
+          )}
           {current && !["ready", "failed"].includes(current.status) && (
             <div className="prep-progress" role="status">
               <LoaderCircle className="spin" size={20} />
@@ -234,6 +266,10 @@ export function Preparation({
                 ))}
               </div>
               <h4>Choose a question to rehearse</h4>
+              <p className="muted">
+                Choose a question below to use this opportunity and its resume
+                for practice.
+              </p>
               <div className="question-list">
                 {b.questions.map((q) => (
                   <button
