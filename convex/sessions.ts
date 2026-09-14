@@ -94,9 +94,30 @@ export const reserve = internalMutation({
       throw new ConvexError(
         "End your active interview before starting another.",
       );
-    let config = args.config;
+    // Resolve saved context server-side. Never trust a client-provided resume snapshot.
+    let config = {
+      ...args.config,
+      resumeText:
+        args.config.resumeMode === "none" ? "" : (user.resumeText ?? ""),
+    };
+    let previous: Doc<"sessions"> | null = null;
+    if (config.previousId) {
+      const prevId = ctx.db.normalizeId("sessions", config.previousId);
+      if (!prevId) throw new ConvexError("Previous session not found.");
+      previous = await owned(ctx, prevId);
+    }
+    const isRetry = !!previous && config.relation === "retry";
+    if (isRetry) {
+      config = {
+        ...previous!.record.config,
+        mode: config.mode,
+        previousId: config.previousId,
+        relation: "retry",
+        resumeText: previous!.record.config.resumeText ?? "",
+      };
+    }
     let question = config.startingQuestion || questions[0];
-    if (config.opportunityId) {
+    if (config.opportunityId && !isRetry) {
       const o = await ctx.db.get(config.opportunityId);
       if (!o || o.ownerId !== user._id || !o.brief || o.status !== "ready")
         throw new ConvexError("Choose a ready preparation brief.");
@@ -107,15 +128,19 @@ export const reserve = internalMutation({
         throw new ConvexError("Choose a question from this brief.");
       config = {
         ...config,
+        resumeText:
+          o.resumeMode === "none"
+            ? ""
+            : o.resumeMode === "custom"
+              ? (o.resumeText ?? "")
+              : (user.resumeText ?? ""),
         role: o.brief.role,
         jobDescription: JSON.stringify(o.brief).slice(0, 15000),
       };
       question = config.startingQuestion || o.brief.questions[0];
     }
-    if (config.previousId) {
-      const prevId = ctx.db.normalizeId("sessions", config.previousId);
-      if (!prevId) throw new ConvexError("Previous session not found.");
-      const prev = await owned(ctx, prevId);
+    if (previous) {
+      const prev = previous;
       if (config.relation === "retry")
         question = prev.record.feedback?.retryQuestion || prev.record.question;
       else
@@ -124,6 +149,7 @@ export const reserve = internalMutation({
             (questions.indexOf(prev.record.question) + 1) % questions.length
           ];
     }
+    configSchema.parse(config);
     const now = Date.now();
     const id = await ctx.db.insert("sessions", {
       ownerId: user._id,

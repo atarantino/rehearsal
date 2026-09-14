@@ -19,10 +19,13 @@ export function validateFeedback(raw: unknown, s: PracticeSession) {
       "The suggested retry question could not be verified. Retry feedback.",
     );
   if (s.config.mode === "coached") f.retryQuestion = null;
-  const facts = (text + " " + s.config.background).replace(
-    /(\d+(?:[.,]\d+)*)\s+percent\b/gi,
-    "$1%",
-  );
+  const facts = (
+    text +
+    " " +
+    s.config.background +
+    " " +
+    (s.config.resumeText ?? "")
+  ).replace(/(\d+(?:[.,]\d+)*)\s+percent\b/gi, "$1%");
   const numbers = new Set(facts.match(/\b\d+(?:[.,]\d+)*(?:%?)/g) || []);
   for (const part of f.outline)
     for (const number of part.text.match(/\b\d+(?:[.,]\d+)*(?:%?)/g) || [])

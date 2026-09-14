@@ -28,6 +28,7 @@ import { api } from "./api";
 import { cloudEnabled, convex } from "./convex";
 import { api as backend } from "../convex/_generated/api";
 import { Preparation } from "./Preparation";
+import { DefaultResume, PracticeResume, LocalResume } from "./Resume";
 import { SignOut } from "./Auth";
 import { LiveSession } from "./live";
 import { captions, clock } from "./transcript";
@@ -418,8 +419,24 @@ export default function App() {
                   can use.
                 </p>
               </div>
+              {cloudEnabled && <DefaultResume />}
               {cloudEnabled && (
                 <Preparation
+                  onOpportunityChange={() =>
+                    setConfig((current) =>
+                      current.opportunityId
+                        ? {
+                            ...current,
+                            opportunityId: undefined,
+                            startingQuestion: undefined,
+                            role: "",
+                            jobDescription: "",
+                            previousId: undefined,
+                            relation: undefined,
+                          }
+                        : current,
+                    )
+                  }
                   onSelect={(patch) => {
                     setConfig({ ...config, ...patch });
                     document
@@ -518,10 +535,10 @@ export default function App() {
                           })
                         }
                       />
-                      <label htmlFor="background">Your experience</label>
+                      <label htmlFor="background">Additional background</label>
                       <textarea
                         id="background"
-                        placeholder="Paste your résumé or a few notes about your work…"
+                        placeholder="Add anything beyond your resume that would help your interviewer…"
                         maxLength={15000}
                         value={config.background}
                         onChange={(e) =>
@@ -530,6 +547,22 @@ export default function App() {
                       />
                     </div>
                   </details>
+                  {cloudEnabled ? (
+                    <PracticeResume
+                      opportunityId={config.opportunityId}
+                      mode={config.resumeMode}
+                      onMode={(resumeMode) =>
+                        setConfig({ ...config, resumeMode })
+                      }
+                    />
+                  ) : (
+                    <LocalResume
+                      text={config.resumeText ?? ""}
+                      onSave={(resumeText) =>
+                        setConfig({ ...config, resumeText })
+                      }
+                    />
+                  )}
                   {!configured && (
                     <p className="inline-notice">
                       Voice practice is temporarily unavailable. Please try

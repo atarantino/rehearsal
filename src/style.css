@@ -1705,3 +1705,103 @@ summary::-webkit-details-marker {
     flex-direction: column;
   }
 }
+
+.resume-card {
+  padding: 22px 26px;
+  margin-bottom: 20px;
+  border: 1px solid #ccc4df;
+  border-radius: 14px;
+  background: #fff;
+}
+.resume-heading,
+.resume-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.resume-heading h2 {
+  font-size: 18px;
+  margin: 0;
+}
+.resume-card p,
+.resume-selection p,
+.resume-editor p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.resume-selection {
+  margin: 18px 0;
+}
+.resume-selection label,
+.resume-editor label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 14px 0 8px;
+}
+.resume-selection select,
+.resume-editor textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #b9b1cb;
+  border-radius: 8px;
+  background: #fff;
+  color: #343045;
+  font: inherit;
+}
+.resume-editor textarea {
+  min-height: 190px;
+  resize: vertical;
+  font-size: 14px;
+}
+.resume-editor input[type="file"] {
+  max-width: 100%;
+  font-size: 13px;
+}
+.resume-editor {
+  margin-top: 16px;
+}
+.resume-card button,
+.resume-selection button,
+.resume-editor button {
+  padding: 9px 13px;
+  border: 1px solid #b9b1cb;
+  border-radius: 8px;
+  background: #fff;
+  color: #514172;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.resume-editor button.primary {
+  background: #6650a4;
+  color: #fff;
+  border-color: #6650a4;
+}
+.resume-card button:disabled,
+.resume-selection button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.resume-card button:focus-visible,
+.resume-selection button:focus-visible {
+  outline: 2px solid #6650a4;
+  outline-offset: 3px;
+}
+.resume-removal {
+  padding: 12px;
+  background: #f7f3fb;
+  border-radius: 8px;
+  margin-top: 12px;
+}
+.resume-removal button {
+  margin-right: 8px;
+}
+@media (max-width: 600px) {
+  .resume-card {
+    padding: 18px;
+  }
+}
