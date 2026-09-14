@@ -273,12 +273,26 @@ export const finalize = mutation({
       await ctx.db.patch(s._id, {
         record: {
           ...s.record,
-          status: args.confirmed ? "completed" : "partial",
+          status:
+            args.confirmed && args.reason !== "connection_lost"
+              ? "completed"
+              : "partial",
           endedAt: new Date().toISOString(),
           seconds: args.seconds ?? seconds,
           usageConfirmed: false,
           closeReason: args.reason.slice(0, 100),
         },
+      });
+    } else if (
+      s.record.status === "partial" &&
+      s.record.closeReason === "close_requested" &&
+      args.reason === "connection_lost" &&
+      s.feedbackState === "idle"
+    ) {
+      // voice.close may win the race to markClosed before the browser reports
+      // why it ended. Preserve that failure without rewriting time or usage.
+      await ctx.db.patch(s._id, {
+        record: { ...s.record, closeReason: "connection_lost" },
       });
     }
     const updated = (await ctx.db.get(s._id))!;
