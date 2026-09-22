@@ -114,12 +114,14 @@ export function questionFor(config: SessionConfig, previous?: PracticeSession) {
   );
 }
 export function nextQuestion(config: SessionConfig, previousQuestion: string) {
-  const prepared = config.preparationBrief?.questions ?? [];
+  const prepared = [...new Set(config.preparationBrief?.questions ?? [])];
   const index = prepared.indexOf(previousQuestion);
   if (index >= 0 && index + 1 < prepared.length) return prepared[index + 1];
-  const generic = questions.indexOf(previousQuestion);
+  // Exclude generic questions already in the brief so fallback cannot restart it.
+  const fallback = questions.filter((question) => !prepared.includes(question));
+  const generic = fallback.indexOf(previousQuestion);
   if (index < 0 && generic < 0 && prepared.length) return prepared[0];
-  return questions[(generic + 1) % questions.length];
+  return fallback[(generic + 1) % fallback.length] ?? questions[0];
 }
 export const maxSeconds = (mode: SessionConfig["mode"]) =>
   mode === "mock" ? 1200 : 300;

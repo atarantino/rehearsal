@@ -115,6 +115,70 @@ test("candidate questions cannot supply behavioral quotes, retry questions, or o
   );
 });
 
+test("overlapping answer tails stay behavioral even across streamed handoff fragments", () => {
+  const s = mockWithQuestions();
+  s.fragments = [
+    {
+      event_id: "q",
+      speaker: "assistant",
+      delta: s.question,
+      start_ms: 0,
+      end_ms: 500,
+    },
+    {
+      event_id: "a",
+      speaker: "user",
+      delta: "I led the rollout. ",
+      start_ms: 700,
+      end_ms: 4000,
+    },
+    {
+      event_id: "h1",
+      speaker: "assistant",
+      delta: "What questions do you ",
+      start_ms: 3500,
+      end_ms: 3800,
+    },
+    {
+      event_id: "h2",
+      speaker: "assistant",
+      delta: "have for me?",
+      start_ms: 3900,
+      end_ms: 4200,
+    },
+    {
+      event_id: "qa",
+      speaker: "user",
+      delta: "How is onboarding organized?",
+      start_ms: 4500,
+      end_ms: 5000,
+    },
+    // Arrives late and overlaps the handoff. It still belongs to the answer.
+    {
+      event_id: "tail",
+      speaker: "user",
+      delta: "We shipped safely.",
+      start_ms: 3700,
+      end_ms: 4400,
+    },
+  ];
+  const sections = feedbackSections(s);
+  assert.equal(
+    sections.interview[1].text,
+    "I led the rollout. We shipped safely.",
+  );
+  assert.equal(
+    sections.candidateQuestions[1].text,
+    "How is onboarding organized?",
+  );
+  const feedback = sampleFeedback(s);
+  feedback.strengths[0].quote = "We shipped safely.";
+  assert.equal(
+    validateFeedback(feedback, s).strengths[0].quote,
+    "We shipped safely.",
+  );
+});
+
 test("handoff variants, user quotations, and legacy no-handoff interviews are handled conservatively", () => {
   const s = mockWithQuestions();
   s.fragments[2].delta = "Do you have any questions for us?";
@@ -123,6 +187,14 @@ test("handoff variants, user quotations, and legacy no-handoff interviews are ha
   s.fragments[2].delta = "Tell me about another project.";
   s.fragments[4].delta = candidateQuestionsHandoff;
   assert.equal(feedbackSections(s).candidateQuestions.length, 0);
+  for (const clarification of [
+    "What would you like to know?",
+    'An interviewer might ask "What questions do you have for me?"',
+    'For example, you could say: "What questions do you have for me?"',
+  ]) {
+    s.fragments[2].delta = clarification;
+    assert.equal(feedbackSections(s).candidateQuestions.length, 0);
+  }
 });
 
 test("brief questions precede generic fallback and retries preserve the selected question", () => {
@@ -151,6 +223,19 @@ test("brief questions precede generic fallback and retries preserve the selected
   assert.equal(questionFor({ ...s.config, relation: "next" }, s), questions[0]);
   s.question = questions[0];
   assert.equal(questionFor({ ...s.config, relation: "next" }, s), questions[1]);
+  s.config.preparationBrief.questions = [
+    questions[0],
+    questions[0],
+    "Custom question?",
+  ];
+  assert.equal(
+    questionFor({ ...s.config, relation: "next" }, s),
+    "Custom question?",
+  );
+  s.question = "Custom question?";
+  assert.equal(questionFor({ ...s.config, relation: "next" }, s), questions[1]);
+  s.question = questions[1];
+  assert.equal(questionFor({ ...s.config, relation: "next" }, s), questions[2]);
 });
 
 test("mock simulation agenda reaches direct and delegated prompts without changing the drill", () => {

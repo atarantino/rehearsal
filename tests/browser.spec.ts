@@ -906,6 +906,14 @@ test("mock Q&A gets its own reflection and preserves the behavioral answer for r
     "How does the team support",
   );
   await expect(page.locator(".feedback-grid")).toContainText(answer);
+  await page.getByRole("button", { name: "Try this answer again" }).click();
+  await expect(page.getByRole("status")).toHaveText("Connected");
+  await expect(page.locator(".live-question")).toHaveText(
+    "Tell me about a difficult project.",
+  );
+  await page
+    .getByRole("button", { name: "Quit interview", exact: true })
+    .click();
 });
 test("saving failure can be recovered without losing captured fragments", async ({
   page,

@@ -1,5 +1,8 @@
-import { feedbackSchema, type PracticeSession } from "./types";
-import { isCandidateQuestionsHandoff } from "./interview";
+import { feedbackSchema, type Fragment, type PracticeSession } from "./types";
+import {
+  candidateQuestionsHandoffMatch,
+  isCandidateQuestionsHandoff,
+} from "./interview";
 
 export class FeedbackValidationError extends Error {
   constructor(
@@ -13,8 +16,11 @@ export class FeedbackValidationError extends Error {
 
 // Join streaming deltas without adding spaces or changing speaker order.
 export function feedbackTranscript(s: PracticeSession) {
+  return transcriptFromFragments(s.fragments);
+}
+function transcriptFromFragments(fragments: Fragment[]) {
   const turns: { speaker: "user" | "assistant"; text: string }[] = [];
-  for (const fragment of [...s.fragments].sort(
+  for (const fragment of [...fragments].sort(
     (a, b) => a.start_ms - b.start_ms,
   )) {
     if (!fragment.delta) continue;
@@ -26,18 +32,33 @@ export function feedbackTranscript(s: PracticeSession) {
 }
 
 export function feedbackSections(s: PracticeSession) {
-  const turns = feedbackTranscript(s);
-  const boundary =
-    s.config.mode === "mock"
-      ? turns.findIndex(
-          (turn) =>
-            turn.speaker === "assistant" &&
-            isCandidateQuestionsHandoff(turn.text),
-        )
-      : -1;
+  if (s.config.mode !== "mock")
+    return { interview: feedbackTranscript(s), candidateQuestions: [] };
+  const assistant = s.fragments
+    .filter((f) => f.speaker === "assistant")
+    .sort((a, b) => a.start_ms - b.start_ms);
+  const text = assistant.map((f) => f.delta).join("");
+  const match = candidateQuestionsHandoffMatch(text);
+  if (!match)
+    return { interview: feedbackTranscript(s), candidateQuestions: [] };
+  let offset = 0;
+  const handoff = assistant.filter((f) => {
+    const start = offset;
+    offset += f.delta.length;
+    return offset > match.start && start < match.end;
+  });
+  const start = Math.min(...handoff.map((f) => f.start_ms));
+  const end = Math.max(...handoff.map((f) => f.end_ms));
+  // Input/output transcript ranges can overlap and arrive late. User fragments
+  // that began before the spoken handoff finished remain answer evidence, even
+  // if an assistant fragment sorts between two pieces of that answer.
+  const before = (f: Fragment) =>
+    f.speaker === "user" ? f.start_ms < end : f.start_ms < start;
   return {
-    interview: boundary < 0 ? turns : turns.slice(0, boundary),
-    candidateQuestions: boundary < 0 ? [] : turns.slice(boundary),
+    interview: transcriptFromFragments(s.fragments.filter(before)),
+    candidateQuestions: transcriptFromFragments(
+      s.fragments.filter((f) => !before(f)),
+    ),
   };
 }
 

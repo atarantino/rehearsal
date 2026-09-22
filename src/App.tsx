@@ -326,7 +326,9 @@ export default function App() {
       previousId: record.id,
       relation,
       startingQuestion:
-        relation === "next" ? undefined : record.config.startingQuestion,
+        relation === "next"
+          ? undefined
+          : record.feedback?.retryQuestion || record.question,
     };
     setConfig(c);
     void start(undefined, c);
@@ -738,9 +740,12 @@ export default function App() {
                     ? "Experience questions, time for your questions, then a brief wrap-up."
                     : "One answer at a time. Review when you’re ready."}
               </p>
-              {config.startingQuestion && config.mode === "coached" && (
-                <p className="live-question">{config.startingQuestion}</p>
-              )}
+              {(record?.question || config.startingQuestion) &&
+                config.mode === "coached" && (
+                  <p className="live-question">
+                    {record?.question || config.startingQuestion}
+                  </p>
+                )}
               <div
                 ref={stage}
                 className="conversation-stage"

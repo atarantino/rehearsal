@@ -109,6 +109,7 @@ export const reserve = internalMutation({
       previous = await owned(ctx, prevId);
     }
     const isRetry = !!previous && config.relation === "retry";
+    if (previous && config.relation === "next") delete config.startingQuestion;
     if (isRetry) {
       config = {
         ...previous!.record.config,

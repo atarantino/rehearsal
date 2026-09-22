@@ -2,7 +2,7 @@
 export const candidateQuestionsHandoff = "What questions do you have for me?";
 
 export const mockInterviewInstructions = `This is a practice simulation, not an interview on behalf of an employer. Briefly welcome the candidate and explain the agenda: about 15 minutes, two or three experience areas, then time for their questions. Ask the supplied starting question first. Use the preparation brief's sourced focus areas and the candidate's answers to choose later topics. Acknowledge transitions naturally. Do not read the brief or URLs aloud.
-Allow thinking pauses and corrections. A pause is not permission to change topics. If a candidate asks for time, wait. Keep your own questions concise. Use clock updates as context for your NEXT natural turn, never as a reason to cut off an answer. Aim to leave the final three minutes for candidate questions; the 20-minute cap is a safety limit, not a target.
+Allow thinking pauses and corrections. A pause is not permission to change topics. If a candidate asks for time, wait. Keep your own questions concise. Use clock updates as context for your NEXT natural turn, never as a reason to cut off an answer. The application clock is authoritative even if the conversation feels shorter. Once a clock update says 12 minutes or more have elapsed, finish listening to the current answer and make your NEXT question the candidate-Q&A handoff below. Do not ask another experience question or follow-up, even if the answer needs more detail. At 15 minutes, aim to finish candidate Q&A and close; at 18 minutes, wrap up the current exchange. The 20-minute cap is a safety limit, not a target.
 After the experience questions, explicitly hand over with exactly: "${candidateQuestionsHandoff}" Say this only when actually handing over, not in the introduction. Stay in candidate Q&A after that. Answer only from confirmed facts in the supplied preparation brief or job description. Keep uncertainties as unconfirmed. When a fact is absent, say you do not know and suggest asking the real interviewer. Do not infer internal team details, compensation, company policies, or hiring timelines. Do not imply you represent the employer. If there is no company context, help the candidate identify what to ask the real interviewer without inventing an answer.
 When the candidate has no more questions, thank them for practicing, close naturally, and invite them to select End & review. Do not invent a hiring decision, promise next steps, coach aloud, or start another interview topic. Wait quietly after closing until they end or ask another question.`;
 
@@ -46,11 +46,22 @@ export function mockClockCue(elapsedSeconds: number, lastCue: number) {
 // The interviewer is instructed to use the exact handoff. Accept common spoken
 // variants too. This is transcript-derived segmentation, not a provider phase
 // signal: prompts still exclude candidate Q&A if a handoff is paraphrased.
+export function candidateQuestionsHandoffMatch(text: string) {
+  // Require a standalone, explicit invitation directed at this interviewer.
+  // Generic clarifications ("What would you like to know?") and quoted examples
+  // must not discard the rest of the candidate's behavioral evidence.
+  const match =
+    /(?:^|[.!?]\s*)((?:(?:so|now|and|before we wrap up|before we finish)[, ]+)?(?:what questions do you have for (?:me|us)|do you have (?:any )?questions for (?:me|us))\s*\?)/i.exec(
+      text.trimStart(),
+    );
+  if (!match) return undefined;
+  const leading = text.length - text.trimStart().length;
+  return {
+    start: leading + match.index + match[0].length - match[1].length,
+    end: leading + match.index + match[0].length,
+  };
+}
+
 export function isCandidateQuestionsHandoff(text: string) {
-  return (
-    /\bwhat questions do you have for me\s*\?/i.test(text) ||
-    /(?:^|[.!?]\s*|\b)(?:what questions (?:do|would) you (?:have|like to ask)(?: for (?:me|us))?|do you have (?:any )?questions for (?:me|us)|what would you like to (?:ask|know)(?: (?:me|about (?:the role|the team|the company)))?)\s*[?!.]*\s*$/i.test(
-      text.trim(),
-    )
-  );
+  return !!candidateQuestionsHandoffMatch(text);
 }

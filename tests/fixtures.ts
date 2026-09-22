@@ -82,7 +82,11 @@ export function sampleFeedback(
       "What made the launch difficult?",
       "What changed because of your decision?",
     ],
-    retryQuestion: null,
+    retryQuestion:
+      s.config.mode === "mock"
+        ? (sections.interview.find((turn) => turn.speaker === "assistant")
+            ?.text ?? null)
+        : null,
     candidateQuestionsFeedback: candidateQuestion
       ? {
           title: "You explored the role",

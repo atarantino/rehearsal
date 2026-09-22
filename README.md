@@ -25,7 +25,7 @@ The interviewer offers candidate Q&A with â€œWhat questions do you have for me?â
 
 For a prepared opportunity, **Next question** advances through the current brief's questions before the generic fallback. A retry keeps its selected question and saved preparation context.
 
-See [realism verification](docs/interview-realism.md) for automated coverage and the opt-in synthetic voice check.
+See [realism checks](docs/interview-realism.md) for automated coverage and the opt-in synthetic voice check.
 
 ## Resumes
 
