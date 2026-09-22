@@ -4,11 +4,24 @@ export const resumeMode = v.union(
   v.literal("custom"),
   v.literal("none"),
 );
+export const brief = v.object({
+  company: v.string(),
+  role: v.string(),
+  interviewDate: v.union(v.string(), v.null()),
+  preparation: v.array(v.string()),
+  summary: v.string(),
+  focusAreas: v.array(
+    v.object({ topic: v.string(), why: v.string(), sourceUrl: v.string() }),
+  ),
+  questions: v.array(v.string()),
+  uncertainties: v.array(v.string()),
+});
 export const config = v.object({
   mode: v.union(v.literal("mock"), v.literal("coached")),
   role: v.string(),
   jobDescription: v.string(),
   background: v.string(),
+  preparationBrief: v.optional(brief),
   resumeMode: v.optional(v.union(v.literal("default"), v.literal("none"))),
   resumeText: v.optional(v.string()),
   previousId: v.optional(v.string()),
@@ -68,18 +81,6 @@ export const source = v.object({
   url: v.string(),
   title: v.string(),
   text: v.string(),
-});
-export const brief = v.object({
-  company: v.string(),
-  role: v.string(),
-  interviewDate: v.union(v.string(), v.null()),
-  preparation: v.array(v.string()),
-  summary: v.string(),
-  focusAreas: v.array(
-    v.object({ topic: v.string(), why: v.string(), sourceUrl: v.string() }),
-  ),
-  questions: v.array(v.string()),
-  uncertainties: v.array(v.string()),
 });
 export const prepStatus = v.union(
   v.literal("queued"),

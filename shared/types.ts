@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { MAX_RESUME_CHARS } from "./resume";
+import { briefSchema } from "./preparation";
 export const configSchema = z.object({
   mode: z.enum(["mock", "coached"]),
   role: z.string().trim().min(1, "Enter a target role.").max(200),
   jobDescription: z.string().max(15000).default(""),
   background: z.string().max(15000).default(""),
+  preparationBrief: briefSchema.optional(),
   resumeMode: z.enum(["default", "none"]).optional(),
   resumeText: z.string().max(MAX_RESUME_CHARS).optional(),
   previousId: z.string().min(1).max(100).optional(),

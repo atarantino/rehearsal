@@ -197,3 +197,20 @@ test("resume facts reach coaching but cannot become quotes from the spoken answe
     live.delegation.responses.instructions.includes(s.config.resumeText),
   );
 });
+
+test("the voice model and its reasoning backend both receive the full context", () => {
+  const s = record();
+  s.config.mode = "mock";
+  s.config.jobDescription = "x".repeat(3000) + "Unique late role requirement";
+  s.config.background = "y".repeat(3000) + "Unique late candidate detail";
+  const live = liveConfig(s);
+  for (const text of [
+    live.input[0].content[0].text,
+    live.delegation.responses.instructions,
+  ]) {
+    assert.ok(text.includes("Unique late role requirement"));
+    assert.ok(text.includes("Unique late candidate detail"));
+  }
+  assert.match(live.instructions, /uncertainties as unconfirmed/);
+  assert.match(live.instructions, /sourced focus areas/);
+});
