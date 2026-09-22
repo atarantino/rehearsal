@@ -2,12 +2,19 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import {
   Mail,
-  Link2,
   ArrowRight,
   Check,
+  Headphones,
   LoaderCircle,
   ExternalLink,
 } from "lucide-react";
+const stages = ["queued", "reading", "researching", "writing"] as const;
+const stageLabel = {
+  queued: "Starting",
+  reading: "Reading the posting or invitation",
+  researching: "Researching the role and company",
+  writing: "Writing your brief",
+};
 import { api } from "../convex/_generated/api";
 import type { SessionConfig } from "../shared/types";
 import type { Id } from "../convex/_generated/dataModel";
@@ -74,13 +81,12 @@ export function Preparation({
   return (
     <section className="prep-panel">
       <div className="section-title">
-        <span className="step-number">
-          <Link2 size={16} />
-        </span>
+        <span className="step-number">1</span>
         <h2>Prepare for a real opportunity</h2>
       </div>
       <p className="muted">
-        Start with your job posting or a forwarded invitation.
+        Paste a job posting, or forward the interview invitation. Rehearsal
+        reads the public pages and writes a sourced brief.
       </p>
       <div className="prep-input">
         <input
@@ -177,7 +183,9 @@ export function Preparation({
       )}
       {!!opportunities?.length && (
         <>
-          <label htmlFor="opportunity">Your recent opportunities</label>
+          <label htmlFor="opportunity" className="field-label">
+            Your recent opportunities
+          </label>
           <select
             id="opportunity"
             value={current?._id ?? ""}
@@ -189,11 +197,11 @@ export function Preparation({
             {visibleOpportunities?.map((o) => (
               <option key={o._id} value={o._id}>
                 {o.brief
-                  ? `${o.brief.role || "Role to confirm"} · ${o.brief.company}`
+                  ? `${o.brief.role || "Role to confirm"} at ${o.brief.company}`
                   : o.kind === "email"
                     ? "Forwarded invitation"
-                    : o.input}{" "}
-                — {o.status}
+                    : o.input}
+                {o.status === "ready" ? "" : ` (${o.status})`}
               </option>
             ))}
           </select>
@@ -202,26 +210,35 @@ export function Preparation({
           )}
           {current && !["ready", "failed"].includes(current.status) && (
             <div className="prep-progress" role="status">
-              <LoaderCircle className="spin" size={20} />
-              <div>
-                <strong>
-                  {
-                    {
-                      queued: "Starting preparation",
-                      reading: "Reading the opportunity",
-                      researching: "Researching the role and company",
-                      writing: "Writing your preparation brief",
-                    }[current.status as "queued"]
-                  }
-                </strong>
-                <p>
-                  This updates live. You can leave and return to your workspace.
-                </p>
-              </div>
+              <ol className="prep-stages">
+                {stages.map((stage) => {
+                  const at = stages.indexOf(current.status as "queued");
+                  const i = stages.indexOf(stage);
+                  return (
+                    <li
+                      key={stage}
+                      data-state={i < at ? "done" : i === at ? "now" : "next"}
+                    >
+                      {i < at ? (
+                        <Check size={14} />
+                      ) : i === at ? (
+                        <LoaderCircle className="spin" size={14} />
+                      ) : (
+                        <i />
+                      )}
+                      {stageLabel[stage]}
+                    </li>
+                  );
+                })}
+              </ol>
+              <p>
+                This updates live. You can leave and come back while we prepare
+                your brief.
+              </p>
             </div>
           )}
           {current?.status === "failed" && (
-            <div className="prep-progress">
+            <div className="prep-progress failed">
               <p>{current.error}</p>
               <button
                 onClick={() =>
@@ -236,61 +253,89 @@ export function Preparation({
           )}
           {b && current?.status === "ready" && (
             <div className="brief">
-              <p className="eyebrow">YOUR INTERVIEW BRIEF</p>
-              <h3>{b.role || "Confirm your target role below"}</h3>
+              <h3>{b.role || "Role to confirm"}</h3>
               <p className="company">
                 {b.company}
-                {b.interviewDate ? ` · ${b.interviewDate}` : ""}
+                {b.interviewDate ? `, interview ${b.interviewDate}` : ""}
+                {current.sources.length
+                  ? ` — from ${current.sources.length} public ${current.sources.length === 1 ? "source" : "sources"}`
+                  : ""}
               </p>
-              <p>{b.summary}</p>
-              {!!b.preparation.length && (
-                <>
-                  <h4>From the invitation</h4>
-                  <ul>
-                    {b.preparation.map((p) => (
-                      <li key={p}>{p}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              <h4>What to prepare</h4>
-              <div className="focus-grid">
-                {b.focusAreas.map((f) => (
-                  <article key={f.topic}>
-                    <strong>{f.topic}</strong>
-                    <p>{f.why}</p>
-                    <a href={f.sourceUrl} target="_blank" rel="noreferrer">
-                      Source <ExternalLink size={12} />
-                    </a>
-                  </article>
-                ))}
+              <p className="brief-summary">{b.summary}</p>
+              <div className="brief-actions">
+                <button
+                  className="primary"
+                  onClick={() =>
+                    onSelect({
+                      mode: "mock",
+                      role: b.role,
+                      jobDescription: b.summary,
+                      opportunityId: current._id,
+                      preparationBrief: b,
+                      startingQuestion: undefined,
+                      previousId: undefined,
+                      relation: undefined,
+                    })
+                  }
+                >
+                  <Headphones size={18} />
+                  Use this brief for a mock interview
+                </button>
+                <p className="muted">
+                  Or rehearse one question at a time, with coaching after each
+                  answer. Either way, the interviewer uses this brief and the
+                  resume above.
+                </p>
               </div>
-              <h4>Choose a question to rehearse</h4>
-              <p className="muted">
-                Choose a question below to use this opportunity and its resume
-                for practice.
-              </p>
-              <div className="question-list">
-                {b.questions.map((q) => (
-                  <button
-                    key={q}
-                    onClick={() =>
-                      onSelect({
-                        mode: "coached",
-                        role: b.role,
-                        jobDescription: JSON.stringify(b),
-                        opportunityId: current._id,
-                        startingQuestion: q,
-                        previousId: undefined,
-                        relation: undefined,
-                      })
-                    }
-                  >
-                    {q}
-                    <ArrowRight size={17} />
-                  </button>
-                ))}
-              </div>
+              <details className="brief-research">
+                <summary>Explore the research and practice questions</summary>
+                {!!b.preparation.length && (
+                  <>
+                    <h4>From the invitation</h4>
+                    <ul>
+                      {b.preparation.map((p) => (
+                        <li key={p}>{p}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <h4>What to prepare</h4>
+                <dl className="focus-list">
+                  {b.focusAreas.map((f) => (
+                    <div key={f.topic}>
+                      <dt>{f.topic}</dt>
+                      <dd>
+                        {f.why}{" "}
+                        <a href={f.sourceUrl} target="_blank" rel="noreferrer">
+                          Source <ExternalLink size={12} />
+                        </a>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="question-list">
+                  {b.questions.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() =>
+                        onSelect({
+                          mode: "coached",
+                          role: b.role,
+                          jobDescription: b.summary,
+                          opportunityId: current._id,
+                          preparationBrief: b,
+                          startingQuestion: q,
+                          previousId: undefined,
+                          relation: undefined,
+                        })
+                      }
+                    >
+                      {q}
+                      <ArrowRight size={17} />
+                    </button>
+                  ))}
+                </div>
+              </details>
               {!!b.uncertainties.length && (
                 <details>
                   <summary>What still needs confirming</summary>
