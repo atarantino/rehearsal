@@ -12,7 +12,7 @@
 - **Auth:** Convex Auth
 - **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-22T15:38:30Z
+- **Last updated:** 2026-09-22T16:04:20Z
 
 ## Log
 
@@ -198,6 +198,14 @@ Cancellation also handles pending microphone permission and late session creatio
 Updated voice bars to follow measured frequency bands from both speakers, settle during silence or mute, and respect reduced motion (`src/voiceMeter.ts`, `src/live.ts`, `src/style.css`).
 Application/backend typechecks, the production build, and all 23 local browser tests passed; all five quit regressions passed again after the final error-banner fix (`tests/browser.spec.ts`). Tests use simulated voice connections and synthetic audio.
 These are uncommitted changes using the existing session APIs; no deployment or human microphone check was performed. Validation results come from the preceding build session, not reruns for this log update.
+
+### 2026-09-22 - bb2b09a and working tree: researched context and opportunity management
+Merged the interview workspace redesign and complete researched-brief snapshots for voice practice (`bebeedc`; `convex/sessions.ts`, `src/App.tsx`). The production release and responsive signup checks are recorded in `docs/experience-verification.md`; its real research and short voice check ran on development.
+Imported emailed PDF, DOCX, and text prep materials with bounded downloads, per-file status, partial-failure recovery, and ownership checks (`712dec2`; `convex/attachments.ts`, `convex/workflows.ts`). Constrained generated citations to supplied public URLs and exact attachment anchors (`bb2b09a`; `convex/research.ts`).
+In the working tree, the selected ready brief now prefills the role and practice context while preserving manual role entries. Opportunity labels use the researched job title and employer instead of overwriting them with the initial email extraction (`src/Preparation.tsx`, `src/App.tsx`, `convex/research.ts`); existing saved titles require regeneration.
+Added confirmed opportunity and prep-material deletion, and made existing resume deletion controls clearer (`src/DeleteSaved.tsx`, `src/Preparation.tsx`, `src/Resume.tsx`). Ownership-checked Convex mutations cancel active preparation when deleting an opportunity and tolerate late updates without recreating it (`convex/preparation.ts`).
+Removing a material clears the derived brief and offers preparation from the remaining sources; saved session snapshots remain available. Realtime selection and resume queries handle deleted opportunities without retaining stale practice context (`convex/preparation.ts`, `convex/resumes.ts`, `src/Preparation.tsx`).
+During this build session, the build and all 36 backend tests passed, including deletion ownership, workflow cancellation, and stale-brief rejection (`tests/backend.convex.ts`). Browser checks with simulated backend responses covered autofill, manual edits, mobile confirmation/cancel, delete failure/retry, both resume removals, and last-opportunity removal. The backend changes pushed successfully to development; the working-tree UI was not published to production. No checks or deployments were rerun for this log update.
 
 ## Submission readiness
 

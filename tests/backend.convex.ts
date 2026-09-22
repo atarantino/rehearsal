@@ -550,6 +550,185 @@ describe("preparation efficiency", () => {
     expect(await b.query(api.preparation.list, {})).toEqual([]);
     await expect(t.query(api.preparation.list, {})).rejects.toThrow("Sign in");
   });
+  it("deletes only an owned opportunity and keeps session snapshots and the default resume", async () => {
+    const { t, a, b, id } = await prepared();
+    await a.mutation(api.resumes.saveDefault, { text: "Default experience" });
+    await a.mutation(api.resumes.saveOpportunity, {
+      opportunityId: id,
+      mode: "custom",
+      text: "Tailored experience",
+    });
+    const sessionId = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, opportunityId: id },
+      requestId: "before-removal",
+    });
+    await expect(b.mutation(api.preparation.remove, { id })).rejects.toThrow(
+      "not found",
+    );
+    await expect(t.mutation(api.preparation.remove, { id })).rejects.toThrow(
+      "Sign in",
+    );
+    await a.mutation(api.preparation.remove, { id });
+    expect(await a.query(api.preparation.get, { id })).toBeNull();
+    expect(await a.query(api.preparation.list, {})).toEqual([]);
+    expect((await a.query(api.resumes.get, {})).defaultText).toBe(
+      "Default experience",
+    );
+    expect(await a.query(api.resumes.get, { opportunityId: id })).toMatchObject(
+      { mode: "none", customText: "" },
+    );
+    expect(
+      (await a.query(api.sessions.get, { id: sessionId })).config,
+    ).toMatchObject({
+      preparationBrief: brief,
+      resumeText: "Tailored experience",
+    });
+    await a.mutation(api.preparation.remove, { id });
+    await t.mutation(internal.preparation.update, {
+      id,
+      status: "ready",
+      brief,
+    });
+    expect(await a.query(api.preparation.get, { id })).toBeNull();
+  });
+  it("cancels a running preparation before deleting its opportunity", async () => {
+    const { t, a, id } = await prepared();
+    await t.run((ctx) =>
+      ctx.db.patch(id, {
+        status: "researching",
+        workflowId: "running-workflow",
+      }),
+    );
+    const cancel = vi.spyOn(workflow, "cancel").mockResolvedValue(undefined);
+    await a.mutation(api.preparation.remove, { id });
+    expect(cancel).toHaveBeenCalledWith(expect.anything(), "running-workflow");
+    expect(await a.query(api.preparation.get, { id })).toBeNull();
+  });
+  it("removes an owned prep material, invalidates derived brief content, and preserves other materials", async () => {
+    const { t, a, b, id } = await prepared();
+    const attachment = {
+      id: "guide/1",
+      filename: "guide.pdf",
+      contentType: "application/pdf",
+      size: 12,
+      status: "imported" as const,
+      text: "Private guide text",
+    };
+    const other = { ...attachment, id: "other", filename: "other.pdf" };
+    await t.run((ctx) =>
+      ctx.db.patch(id, {
+        attachments: [attachment, other],
+        sources: [
+          jobSource,
+          {
+            url: "#attachment-guide%2F1",
+            title: attachment.filename,
+            text: attachment.text,
+          },
+        ],
+        resumeText: "Saved resume",
+        resumeMode: "custom",
+      }),
+    );
+    for (const caller of [b, t]) {
+      await expect(
+        caller.mutation(api.preparation.removeAttachment, {
+          id,
+          attachmentId: attachment.id,
+        }),
+      ).rejects.toThrow();
+    }
+    await t.run((ctx) => ctx.db.patch(id, { status: "writing" }));
+    await expect(
+      a.mutation(api.preparation.removeAttachment, {
+        id,
+        attachmentId: attachment.id,
+      }),
+    ).rejects.toThrow("Wait for preparation");
+    await t.run((ctx) => ctx.db.patch(id, { status: "ready" }));
+    await a.mutation(api.preparation.removeAttachment, {
+      id,
+      attachmentId: attachment.id,
+    });
+    const changed = await a.query(api.preparation.get, { id });
+    expect(changed).toMatchObject({
+      attachments: [other],
+      sources: [jobSource],
+      status: "failed",
+      resumeText: "Saved resume",
+    });
+    expect(changed?.brief).toBeUndefined();
+    await expect(
+      a.mutation(internal.sessions.reserve, {
+        config: { ...config, opportunityId: id },
+        requestId: "stale-material",
+      }),
+    ).rejects.toThrow("ready preparation");
+    await a.mutation(api.preparation.removeAttachment, {
+      id,
+      attachmentId: attachment.id,
+    });
+    expect((await a.query(api.preparation.get, { id }))?.attachments).toEqual([
+      other,
+    ]);
+  });
+  it("keeps the researched job title and employer instead of the email extraction in opportunity labels", async () => {
+    const { t, a, id } = await prepared();
+    await t.run((ctx) =>
+      ctx.db.patch(id, {
+        kind: "email",
+        input:
+          "Fwd: Interview invitation — Engineering team at Recruiting Agency",
+      }),
+    );
+    vi.stubEnv("OPENAI_API_KEY", "test-only");
+    const researched = {
+      ...brief,
+      role: "Senior Software Engineer",
+      company: "Convex",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            output: [
+              {
+                content: [
+                  { type: "output_text", text: JSON.stringify(researched) },
+                ],
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    const result = await t.action(internal.research.writeBrief, {
+      id,
+      extracted: {
+        ...extracted,
+        role: "Fwd: Interview invitation — Engineering team",
+        company: "Recruiting Agency",
+        interviewDate: "October 1, 10:00 PT",
+        preparation: ["Prepare a project walkthrough."],
+      },
+      sources: [
+        { ...jobSource, text: "Convex is hiring a Senior Software Engineer." },
+      ],
+    });
+    expect(result).toMatchObject({
+      role: "Senior Software Engineer",
+      company: "Convex",
+      interviewDate: "October 1, 10:00 PT",
+      preparation: ["Prepare a project walkthrough."],
+    });
+    await t.mutation(internal.preparation.update, {
+      id,
+      status: "ready",
+      brief: result,
+    });
+    expect((await a.query(api.preparation.list, {}))[0].brief).toEqual(result);
+  });
   it("sends job evidence once while preserving extracted details and citation validation", async () => {
     const { t, id } = await prepared();
     vi.stubEnv("OPENAI_API_KEY", "test-only");
@@ -1118,12 +1297,12 @@ describe("email prep attachments", () => {
     );
     await t.action(internal.attachments.importEmail, { id });
     const o = await a.query(api.preparation.get, { id });
-    expect(o.attachments?.map((x) => x.status)).toEqual([
+    expect(o?.attachments?.map((x) => x.status)).toEqual([
       "imported",
       "skipped",
       "failed",
     ]);
-    expect(o.attachments?.[0].text).toContain("conflict resolution");
+    expect(o?.attachments?.[0].text).toContain("conflict resolution");
     expect(calls[0]).toContain("%3Cmessage%2F1%3E/attachments/guide%2F1");
     expect(calls.some((x) => x.endsWith("logo"))).toBe(false);
     expect(

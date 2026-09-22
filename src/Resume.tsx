@@ -188,18 +188,19 @@ export function DefaultResume() {
             </button>
             {data.defaultText && (
               <button type="button" onClick={() => setRemoving(true)}>
-                Remove default
+                Delete saved default resume
               </button>
             )}
           </div>
           {removing && (
             <div className="resume-removal">
               <p>
-                Remove your default from future practice? Existing sessions and
-                opportunity-specific resumes keep their saved text.
+                Delete your default resume from future practice? Existing
+                sessions and opportunity-specific resumes keep their saved text.
               </p>
               <button
                 type="button"
+                className="danger"
                 disabled={busy}
                 onClick={async () => {
                   setBusy(true);
@@ -213,7 +214,7 @@ export function DefaultResume() {
                   }
                 }}
               >
-                Remove default resume
+                Delete default resume
               </button>
               <button
                 type="button"
@@ -315,6 +316,7 @@ export function OpportunityResume({
               </p>
               <button
                 type="button"
+                className="danger"
                 disabled={busy}
                 onClick={async () => {
                   setBusy(true);

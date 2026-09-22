@@ -14,6 +14,7 @@ import { requireUser } from "./users";
 import { publicUrl } from "../shared/preparation";
 import { limits } from "./limits";
 import { workflow } from "./workflows";
+import type { WorkflowId } from "@convex-dev/workflow";
 export async function enqueue(
   ctx: MutationCtx,
   args: {
@@ -90,13 +91,52 @@ export const list = query({
 });
 export const get = query({
   args: { id: v.id("opportunities") },
-  returns: schema.doc("opportunities"),
+  returns: v.union(schema.doc("opportunities"), v.null()),
   handler: async (ctx, { id }) => {
+    const user = await requireUser(ctx);
+    const o = await ctx.db.get(id);
+    if (!o) return null;
+    if (o.ownerId !== user._id) throw new ConvexError("Preparation not found.");
+    return o;
+  },
+});
+export const remove = mutation({
+  args: { id: v.id("opportunities") },
+  returns: v.null(),
+  handler: async (ctx, { id }) => {
+    const user = await requireUser(ctx);
+    const o = await ctx.db.get(id);
+    if (!o) return null;
+    if (o.ownerId !== user._id) throw new ConvexError("Preparation not found.");
+    if (o.workflowId && !["ready", "failed"].includes(o.status))
+      await workflow.cancel(ctx, o.workflowId as WorkflowId);
+    await ctx.db.delete(id);
+    return null;
+  },
+});
+export const removeAttachment = mutation({
+  args: { id: v.id("opportunities"), attachmentId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { id, attachmentId }) => {
     const user = await requireUser(ctx);
     const o = await ctx.db.get(id);
     if (!o || o.ownerId !== user._id)
       throw new ConvexError("Preparation not found.");
-    return o;
+    if (!["ready", "failed"].includes(o.status))
+      throw new ConvexError(
+        "Wait for preparation to finish before removing materials.",
+      );
+    if (!o.attachments?.some((a) => a.id === attachmentId)) return null;
+    const sourceUrl = `#attachment-${encodeURIComponent(attachmentId)}`;
+    await ctx.db.patch(id, {
+      attachments: o.attachments.filter((a) => a.id !== attachmentId),
+      sources: o.sources.filter((s) => s.url !== sourceUrl),
+      brief: undefined,
+      status: "failed",
+      error:
+        "Prep materials changed. Prepare again to build a fresh brief from the remaining sources.",
+    });
+    return null;
   },
 });
 export const retry = mutation({
@@ -146,6 +186,8 @@ export const update = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, { id, ...patch }) => {
+    // A canceled action may finish after its opportunity was deleted.
+    if (!(await ctx.db.get(id))) return null;
     await ctx.db.patch(id, patch);
     return null;
   },

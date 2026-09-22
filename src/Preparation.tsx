@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import {
   Mail,
@@ -19,17 +19,22 @@ import { api } from "../convex/_generated/api";
 import type { SessionConfig } from "../shared/types";
 import type { Id } from "../convex/_generated/dataModel";
 import { OpportunityResume } from "./Resume";
+import { DeleteSaved } from "./DeleteSaved";
 export function Preparation({
   onSelect,
+  onReady,
   onOpportunityChange,
 }: {
   onSelect: (config: Partial<SessionConfig>) => void;
+  onReady: (config: Partial<SessionConfig>) => void;
   onOpportunityChange: () => void;
 }) {
   const opportunities = useQuery(api.preparation.list, {});
   const inbox = useQuery(api.email.inbox, {});
   const create = useMutation(api.preparation.create);
   const retry = useMutation(api.preparation.retry);
+  const remove = useMutation(api.preparation.remove);
+  const removeAttachment = useMutation(api.preparation.removeAttachment);
   const createInbox = useAction(api.email.create);
   const [url, setUrl] = useState("");
   const [initialSelection] = useState(() =>
@@ -56,7 +61,15 @@ export function Preparation({
   const [autoReply, setAutoReply] = useState(true);
   const [copied, setCopied] = useState(false);
   const current =
-    selectedOpportunity ?? opportunities?.find((o) => o._id === selected);
+    selectedOpportunity === undefined
+      ? opportunities?.find((o) => o._id === selected)
+      : selectedOpportunity;
+  useEffect(() => {
+    if (selected && selectedOpportunity === null) {
+      onOpportunityChange();
+      setSelected(null);
+    }
+  }, [selected, selectedOpportunity, onOpportunityChange]);
   const visibleOpportunities =
     current &&
     opportunities &&
@@ -64,6 +77,34 @@ export function Preparation({
       ? [current, ...opportunities]
       : opportunities;
   const b = current?.brief;
+  const autofilled = useRef<Id<"opportunities"> | null>(null);
+  useEffect(() => {
+    autofilled.current = null;
+  }, [selected]);
+  useEffect(() => {
+    if (current && !b && autofilled.current === current._id) {
+      autofilled.current = null;
+      onOpportunityChange();
+    }
+    if (
+      !current ||
+      current.status !== "ready" ||
+      !b?.role.trim() ||
+      autofilled.current === current._id
+    )
+      return;
+    // Apply each selected brief once so live updates don't undo manual edits.
+    autofilled.current = current._id;
+    onReady({
+      role: b.role,
+      jobDescription: b.summary,
+      opportunityId: current._id,
+      preparationBrief: b,
+      startingQuestion: undefined,
+      previousId: undefined,
+      relation: undefined,
+    });
+  }, [current, b, onReady, onOpportunityChange]);
   async function submit() {
     setBusy(true);
     setError("");
@@ -191,6 +232,7 @@ export function Preparation({
           <select
             id="opportunity"
             value={current?._id ?? ""}
+            disabled={busy}
             onChange={(e) => {
               onOpportunityChange();
               setSelected(e.target.value as Id<"opportunities">);
@@ -199,7 +241,12 @@ export function Preparation({
             {visibleOpportunities?.map((o) => (
               <option key={o._id} value={o._id}>
                 {o.brief
-                  ? `${o.brief.role || "Role to confirm"} at ${o.brief.company}`
+                  ? [
+                      o.brief.role.trim() || "Role to confirm",
+                      o.brief.company.trim(),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
                   : o.kind === "email"
                     ? "Forwarded invitation"
                     : o.input}
@@ -208,11 +255,31 @@ export function Preparation({
             ))}
           </select>
           {current && (
+            <div className="opportunity-actions">
+              <DeleteSaved
+                key={current._id}
+                label="Delete this opportunity"
+                confirmLabel="Delete opportunity"
+                description={`Delete ${b ? [b.role, b.company].filter(Boolean).join(" · ") : "this opportunity"}, including its brief, prep materials, and saved opportunity resume? This cannot be undone. Your default resume and past practice sessions will remain.`}
+                disabled={busy}
+                onBusy={setBusy}
+                onDelete={async () => {
+                  await remove({ id: current._id });
+                  onOpportunityChange();
+                  setSelected(null);
+                }}
+              />
+            </div>
+          )}
+          {current && (
             <OpportunityResume key={current._id} opportunityId={current._id} />
           )}
           {!!current?.attachments?.length && (
             <section className="attachment-list" aria-label="Email attachments">
               <h4>Prep materials</h4>
+              {!["ready", "failed"].includes(current.status) && (
+                <p>You can remove materials once preparation finishes.</p>
+              )}
               <ul>
                 {current.attachments.map((a) => (
                   <li key={a.id} id={`attachment-${encodeURIComponent(a.id)}`}>
@@ -228,6 +295,22 @@ export function Preparation({
                             : "Could not import"}
                     </span>
                     {a.note && <p>{a.note}</p>}
+                    <DeleteSaved
+                      label={`Remove ${a.filename}`}
+                      confirmLabel="Remove prep material"
+                      description={`Remove ${a.filename} from this opportunity? The current brief will be cleared so you can prepare again using the remaining sources. Past practice sessions and the original email are kept.`}
+                      disabled={
+                        busy || !["ready", "failed"].includes(current.status)
+                      }
+                      onBusy={setBusy}
+                      onDelete={async () => {
+                        await removeAttachment({
+                          id: current._id,
+                          attachmentId: a.id,
+                        });
+                        onOpportunityChange();
+                      }}
+                    />
                   </li>
                 ))}
               </ul>
@@ -240,6 +323,7 @@ export function Preparation({
               {current.status === "ready" &&
                 current.attachments.some((a) => a.status === "failed") && (
                   <button
+                    disabled={busy}
                     onClick={() =>
                       void retry({ id: current._id }).catch((e) =>
                         setError(e.message),
@@ -284,13 +368,14 @@ export function Preparation({
             <div className="prep-progress failed">
               <p>{current.error}</p>
               <button
+                disabled={busy}
                 onClick={() =>
                   void retry({ id: current._id }).catch((e) =>
                     setError(e.message),
                   )
                 }
               >
-                Retry preparation
+                Prepare again
               </button>
             </div>
           )}

@@ -167,7 +167,7 @@ try {
     });
   await picker.selectOption(beta);
   await expect(page.getByLabel("What role are you preparing for?")).toHaveValue(
-    "",
+    "Designer",
   );
   await expect(
     page.getByText("Practicing for Designer · Alpha", { exact: true }),
