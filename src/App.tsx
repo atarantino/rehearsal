@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -152,6 +153,11 @@ export default function App() {
     "setup",
   );
   const [config, setConfig] = useState<SessionConfig>(initial);
+  const prefillPreparation = useCallback((patch: Partial<SessionConfig>) => {
+    setConfig((current) =>
+      current.role.trim() ? current : { ...current, ...patch },
+    );
+  }, []);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [record, setRecord] = useState<PracticeSession>();
   const [fragments, setFragments] = useState<Fragment[]>([]);
@@ -477,6 +483,7 @@ export default function App() {
               />
               {cloudEnabled && (
                 <Preparation
+                  onReady={prefillPreparation}
                   onOpportunityChange={() =>
                     setConfig((current) =>
                       current.opportunityId
@@ -494,7 +501,7 @@ export default function App() {
                     )
                   }
                   onSelect={(patch) => {
-                    setConfig({ ...config, ...patch });
+                    setConfig((current) => ({ ...current, ...patch }));
                     document
                       .getElementById("practice-setup")
                       ?.scrollIntoView({ behavior: "smooth", block: "start" });

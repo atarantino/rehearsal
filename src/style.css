@@ -2220,3 +2220,25 @@ h2 {
   color: var(--muted);
   font-size: 13px;
 }
+.opportunity-actions {
+  margin-top: 10px;
+}
+.saved-removal {
+  margin-block: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+}
+.saved-removal p {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.saved-removal .resume-actions {
+  flex-wrap: wrap;
+}
+.resume-removal button.danger {
+  background: #ad4254;
+  border-color: #ad4254;
+  color: white;
+}

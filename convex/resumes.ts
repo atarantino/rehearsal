@@ -24,11 +24,14 @@ export const get = query({
   handler: async (ctx, { opportunityId }) => {
     const user = await requireUser(ctx);
     const opportunity = opportunityId ? await ctx.db.get(opportunityId) : null;
-    if (opportunityId && (!opportunity || opportunity.ownerId !== user._id))
+    if (opportunity && opportunity.ownerId !== user._id)
       throw new ConvexError("Opportunity not found.");
     return {
       defaultText: user.resumeText ?? "",
-      mode: opportunity?.resumeMode ?? "default",
+      mode:
+        opportunityId && !opportunity
+          ? "none"
+          : (opportunity?.resumeMode ?? "default"),
       customText: opportunity?.resumeText ?? "",
       opportunityLabel: opportunity?.brief
         ? [opportunity.brief.role, opportunity.brief.company]
