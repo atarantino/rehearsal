@@ -1,5 +1,10 @@
 import { api } from "./api";
 import {
+  createVoiceMeter,
+  voiceBarCount,
+  type VoiceLevels,
+} from "./voiceMeter";
+import {
   fragmentSchema,
   mergeFragments,
   maxSeconds,
@@ -10,10 +15,11 @@ import {
 type Handlers = {
   state: (s: string) => void;
   fragments: (f: Fragment[]) => void;
-  level: (levels: { user: number; assistant: number }) => void;
+  level: (levels: VoiceLevels) => void;
   speaker: (speaker: "user" | "assistant" | null) => void;
   error: (s: string) => void;
-  ended: (s: PracticeSession) => void;
+  ended: (s: PracticeSession, quit: boolean) => void;
+  cancelled: () => void;
   record: (s: PracticeSession) => void;
 };
 export class LiveSession {
@@ -23,6 +29,8 @@ export class LiveSession {
   private audio = new Audio();
   private context?: AudioContext;
   private animation = 0;
+  private micMeter?: ReturnType<typeof createVoiceMeter>;
+  private remoteMeter?: ReturnType<typeof createVoiceMeter>;
   private timer?: ReturnType<typeof setTimeout>;
   private setupTimer?: ReturnType<typeof setTimeout>;
   private saveTimer?: ReturnType<typeof setInterval>;
@@ -34,6 +42,8 @@ export class LiveSession {
   private finalWait?: () => void;
   private ending?: Promise<void>;
   private disposed = false;
+  private quitting = false;
+  private creating = false;
   private started = false;
   private interrupted = false;
   private disconnectTimer?: ReturnType<typeof setTimeout>;
@@ -58,53 +68,55 @@ export class LiveSession {
         throw new Error(
           "Open this app over HTTPS in Chrome to use your microphone.",
         );
-      this.mic = await navigator.mediaDevices.getUserMedia({
+      const mic = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },
       });
+      if (this.disposed) {
+        mic.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      this.mic = mic;
       this.context = new AudioContext();
       await this.context.resume();
-      const analyser = this.context.createAnalyser();
-      analyser.fftSize = 256;
-      this.context.createMediaStreamSource(this.mic).connect(analyser);
-      const values = new Uint8Array(analyser.frequencyBinCount);
-      let remoteAnalyser: AnalyserNode | undefined;
-      let remoteSource: MediaStreamAudioSourceNode | undefined;
-      const remoteValues = new Uint8Array(analyser.frequencyBinCount);
-      const levels = { user: 0, assistant: 0 };
+      if (this.disposed) return;
+      this.micMeter = createVoiceMeter(this.context, this.mic);
       let measuredAt = 0;
       let speaker: "user" | "assistant" | null = null;
       let lastSpeechAt = 0;
-      const readLevel = (node: AnalyserNode, data: Uint8Array<ArrayBuffer>) => {
-        node.getByteTimeDomainData(data);
-        const rms =
-          Math.sqrt(
-            data.reduce((sum, v) => sum + (v - 128) ** 2, 0) / data.length,
-          ) / 128;
-        // Ignore the noise floor; ease out between syllables instead of flickering.
-        return rms < 0.008 ? 0 : Math.min(1, rms * 7);
-      };
-      const smooth = (previous: number, next: number) => {
-        const value =
-          previous + (next - previous) * (next > previous ? 0.65 : 0.2);
-        return value < 0.01 ? 0 : value;
-      };
+      const silence = { level: 0, bands: Array<number>(voiceBarCount).fill(0) };
       const measure = (now: number) => {
         if (this.disposed) return;
-        if (now - measuredAt >= 32) {
+        const elapsedMs = now - measuredAt;
+        if (elapsedMs >= 32) {
           measuredAt = now;
-          levels.user = this.mic
-            ?.getAudioTracks()
-            .some((track) => track.enabled)
-            ? smooth(levels.user, readLevel(analyser, values))
-            : 0;
-          levels.assistant =
-            remoteAnalyser && !this.audio.paused && !this.audio.muted
-              ? smooth(
-                  levels.assistant,
-                  readLevel(remoteAnalyser, remoteValues),
-                )
-              : 0;
-          this.h.level({ ...levels });
+          const user = this.micMeter!.read(
+            this.context?.state === "running" &&
+              !!this.mic
+                ?.getAudioTracks()
+                .some(
+                  (track) =>
+                    track.enabled &&
+                    !track.muted &&
+                    track.readyState === "live",
+                ),
+            elapsedMs,
+          );
+          const assistant =
+            this.remoteMeter?.read(
+              this.context?.state === "running" &&
+                !this.audio.paused &&
+                !this.audio.muted &&
+                this.audio.volume > 0,
+              elapsedMs,
+            ) ?? silence;
+          const levels = {
+            user: user.level,
+            assistant: assistant.level,
+            bands: user.bands.map((value, i) =>
+              Math.max(value, assistant.bands[i]),
+            ),
+          };
+          this.h.level(levels);
           let next =
             levels.assistant > 0.06
               ? ("assistant" as const)
@@ -129,13 +141,9 @@ export class LiveSession {
         if (this.disposed || e.track.kind !== "audio") return;
         const stream = new MediaStream([e.track]);
         this.audio.srcObject = stream;
-        remoteSource?.disconnect();
-        remoteAnalyser?.disconnect();
-        remoteAnalyser = this.context!.createAnalyser();
-        remoteAnalyser.fftSize = 256;
-        remoteSource = this.context!.createMediaStreamSource(stream);
-        // Observe the stream only. The audio element remains the sole playback path.
-        remoteSource.connect(remoteAnalyser);
+        this.remoteMeter?.disconnect();
+        // Observe only: the audio element remains the sole playback path.
+        this.remoteMeter = createVoiceMeter(this.context!, stream);
         this.audio
           .play()
           .catch(() =>
@@ -167,7 +175,10 @@ export class LiveSession {
         this.connectionChanged();
       };
       peer.oniceconnectionstatechange = () => this.connectionChanged();
-      await peer.setLocalDescription(await peer.createOffer());
+      const offer = await peer.createOffer();
+      if (this.disposed) return;
+      await peer.setLocalDescription(offer);
+      if (this.disposed) return;
       if (peer.iceGatheringState !== "complete")
         await new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(() => {
@@ -194,11 +205,22 @@ export class LiveSession {
           peer.addEventListener("icegatheringstatechange", onState);
           onState();
         });
+      if (this.disposed) return;
+      this.creating = true;
       const result = await api<{ record: PracticeSession; sdp: string }>(
         "/sessions",
         { config, sdp: peer.localDescription!.sdp },
       );
+      this.creating = false;
       this.record = result.record;
+      if (this.quitting) {
+        await this.end("quit_requested");
+        return;
+      }
+      if (this.disposed) {
+        await api(`/sessions/${this.record.id}/close`, {});
+        return;
+      }
       this.h.record(result.record);
       this.saveTimer = setInterval(() => {
         void this.flush().catch(() =>
@@ -219,6 +241,7 @@ export class LiveSession {
         type: "answer",
         sdp: result.sdp,
       });
+      if (this.disposed) return;
       this.timer = setTimeout(
         () => {
           this.h.error("This practice session reached its time limit.");
@@ -227,6 +250,13 @@ export class LiveSession {
         maxSeconds(config.mode) * 1000,
       );
     } catch (e) {
+      if (this.quitting) {
+        if (this.creating) {
+          this.creating = false;
+          this.h.cancelled();
+        }
+        return;
+      }
       this.cleanup();
       if (this.record)
         await api(`/sessions/${this.record.id}/close`, {}).catch(() => {});
@@ -285,6 +315,7 @@ export class LiveSession {
     void this.end("connection_lost");
   }
   private event(e: any) {
+    if (this.disposed) return;
     if (e.type === "session.started") {
       this.started = true;
       clearTimeout(this.setupTimer);
@@ -382,6 +413,16 @@ export class LiveSession {
     await this.context?.resume();
     await this.audio.play();
   }
+  quit() {
+    if (this.ending || this.quitting) return;
+    this.quitting = true;
+    this.send({ type: "session.close", event_id: crypto.randomUUID() });
+    // Release the microphone and playback immediately, even if saving is slow.
+    this.cleanup();
+    if (this.record) void this.end("quit_requested");
+    else if (this.creating) this.h.state("Finishing");
+    else this.h.cancelled();
+  }
   end(reason = "close_requested"): Promise<void> {
     if (this.ending) return this.ending;
     this.endReason = reason;
@@ -435,7 +476,7 @@ export class LiveSession {
           seconds: this.finalEvent?.usage?.seconds,
         },
       );
-      this.h.ended(record);
+      this.h.ended(record, this.quitting);
     } catch {
       this.cleanup();
       this.h.error(
@@ -460,7 +501,7 @@ export class LiveSession {
         seconds: this.finalEvent?.usage?.seconds,
       },
     );
-    this.h.ended(s);
+    this.h.ended(s, this.quitting);
   }
   cleanup() {
     if (this.disposed) return;
@@ -480,8 +521,14 @@ export class LiveSession {
     this.audio.srcObject = null;
     this.channel?.close();
     this.peer?.close();
+    this.micMeter?.disconnect();
+    this.remoteMeter?.disconnect();
     void this.context?.close().catch(() => {});
-    this.h.level({ user: 0, assistant: 0 });
+    this.h.level({
+      user: 0,
+      assistant: 0,
+      bands: Array(voiceBarCount).fill(0),
+    });
     this.h.speaker(null);
   }
   abandon() {

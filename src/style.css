@@ -519,6 +519,18 @@ summary::-webkit-details-marker {
   align-items: center;
   margin: 10px 0 33px;
 }
+.live-exit {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.quit-button {
+  color: #a13245;
+  border-color: #e4bac2;
+}
+.quit-button:hover:not(:disabled) {
+  background: #fff0f2;
+}
 .live-heading .eyebrow {
   margin: 0;
 }
@@ -606,18 +618,15 @@ summary::-webkit-details-marker {
   height: 110px !important;
   width: 5px;
   background: var(--voice-color);
-  transform: scaleY(calc(0.07 + var(--voice-level) * var(--bar-weight)));
+  transform: scaleY(0.07);
   transition:
-    transform 100ms linear,
+    transform 55ms linear,
     background-color 250ms;
 }
-.conversation-stage[data-speaker="idle"] .wave {
-  animation: voice-rest 3s ease-in-out infinite;
-}
-@keyframes voice-rest {
-  50% {
-    opacity: 0.5;
-  }
+.conversation-stage .wave.active i {
+  transform: scaleY(
+    calc(0.07 + var(--bar-energy) * (0.45 + var(--bar-weight) * 0.48))
+  );
 }
 .conversation-stage h2 {
   color: #536a95;
@@ -1405,7 +1414,8 @@ summary::-webkit-details-marker {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .conversation-stage .wave i {
+  .conversation-stage .wave i,
+  .conversation-stage .wave.active i {
     transform: scaleY(calc(0.12 + var(--bar-weight) * 0.3));
   }
   .voice-halo {
