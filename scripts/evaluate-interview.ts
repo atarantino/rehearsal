@@ -105,6 +105,7 @@ const observations: Record<string, unknown> = {
   audioStored: false,
 };
 const acknowledgments: string[] = [];
+const eventCounts: Record<string, number> = {};
 const send = (event: object) => {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event));
 };
@@ -116,6 +117,7 @@ ws.on("close", () => {
 });
 ws.on("message", (data) => {
   const e = JSON.parse(data.toString());
+  eventCounts[e.type] = (eventCounts[e.type] ?? 0) + 1;
   if (e.type === "session.started") {
     started = true;
     openedAt = Date.now();
@@ -159,7 +161,7 @@ let offset = 0;
 const silence = Buffer.alloc(960);
 const feed = setInterval(() => {
   if (!started || closed) return;
-  let chunk = silence;
+  let chunk: Buffer = silence;
   if (pcm) {
     chunk = pcm.subarray(offset, offset + 960);
     offset += 960;
@@ -191,6 +193,7 @@ function cue(index: number) {
   });
 }
 try {
+  observations.stage = "connecting";
   await until(() => ws.readyState === WebSocket.OPEN);
   send({
     type: "session.start",
@@ -199,7 +202,9 @@ try {
       audio: { format: { type: "audio/pcm", rate: 24000 } },
     },
   });
+  observations.stage = "starting";
   await until(() => started);
+  observations.stage = "opening";
   const openingAt = Date.now();
   send({
     type: "session.instructions.append",
@@ -212,6 +217,7 @@ try {
     .filter((f) => f.speaker === "assistant")
     .map((f) => f.delta)
     .join("");
+  observations.stage = "candidate-answer";
   await speak(0);
   const pauseStart = s.fragments.length;
   await delay(7000);
@@ -225,6 +231,7 @@ try {
   const answerEnd = Date.now();
   await responseAfter(answerEnd);
   if (mode === "mock") {
+    observations.stage = "candidate-questions";
     const sections = feedbackSections(s);
     observations.recognizedHandoff = sections.candidateQuestions.length > 0;
     if (!sections.candidateQuestions.length)
@@ -250,6 +257,7 @@ try {
       .join("");
   }
   s.status = "completed";
+  observations.stage = "completed";
 } catch (e) {
   s.status = "partial";
   observations.error = e instanceof Error ? e.message : "Evaluation failed";
@@ -273,6 +281,7 @@ try {
   process.exitCode = 1;
 }
 observations.clockAcknowledgments = acknowledgments;
+observations.eventCounts = eventCounts;
 await writeFile(output, JSON.stringify({ observations, session: s }, null, 2), {
   mode: 0o600,
 });
