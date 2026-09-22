@@ -12,7 +12,7 @@
 - **Auth:** Convex Auth
 - **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; gpt-4o-mini-tts for synthetic voice evaluation; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-22T17:23:48Z
+- **Last updated:** 2026-09-22T18:14:34Z
 
 ## Log
 
@@ -212,7 +212,14 @@ The previously logged opportunity-management work is now on main (`c89f961`, PR 
 Separated candidate-question reflection from behavioral evidence, preserved overlapping answer fragments, and advanced through prepared questions using the owned brief; Convex mutations retain retry snapshots and actions validate feedback (`shared/feedback.ts`, `convex/sessions.ts`, `convex/voice.ts`). Retry labels now show the actual question, and entering a call reveals its controls on mobile (`src/App.tsx`).
 [Fable approved the revised PR](https://github.com/atarantino/rehearsal/pull/20#issuecomment-5780919138) after its findings were fixed and independently passed 11 focused tests. Build/typechecks and all 97 tests passed: 33 unit/integration, 38 Convex, and 26 browser; GitHub verification passed.
 Real-provider synthetic mock and focused checks exercised thinking pauses and validated feedback; the mock also reached Q&A, admitted unknown employer facts, and closed naturally (`scripts/evaluate-interview.ts`, `docs/interview-realism.md`). Accelerated WebSocket checks do not establish full-length human/WebRTC reliability or guaranteed transition timing.
-Validated the backend on development. PR #20 remains open; no production release was made for this feature. These results come from the implementation session, not tests or deployments rerun for this log update.
+Validated the backend on development. At the time of this entry, PR #20 was open and no production release had been recorded for this feature; see the merge update below. These results come from the implementation session, not tests or deployments rerun for this log update.
+
+### 2026-09-22 - 81d5c14 and working tree: merged features and submission refresh
+Merged paced mock interviews, candidate Q&A, prepared-question progression, and mobile call controls into main through PR #20 (`81d5c14`); `README.md` now documents the flow and its timing limits.
+The earlier quit-interview and responsive voice-bar work is committed and merged through PR #18 (`4568901`, `5e8bd15`). Automatic backend/frontend deployment after successful main checks is also merged (`b61a4ce`, PR #8; `.github/workflows/ci.yml`); local workflow configuration alone does not establish a successful production release of these changes.
+An uncommitted change in `src/Preparation.tsx` displays string-valued Convex inbox errors directly and uses a friendly fallback for other failures. It has not been tested or deployed in this log update.
+Reconciled the log with Git history, the working-tree diff, registered components, and submission notes. Existing test results remain historical; no application tests or production checks were rerun.
+The social draft includes all four sponsor tags. The repository and hosted demo links are recorded, but no YouTube URL, published social-post URL, registration confirmation, or submission receipt is present in the inspected project materials or this conversation.
 
 ## Submission readiness
 
@@ -225,7 +232,7 @@ Checked against the [official requirements](https://www.convex.dev/hackathons/al
 - [x] Hosted preparation and resume source merged into public `main` (PRs #1 and #7).
 - [x] [Hosted demo draft, 2 minutes 11 seconds](https://acoustic-cuttlefish-868.convex.site/demo.html).
 - [ ] Confirm Luma registration and personal eligibility.
-- [ ] Share on X or LinkedIn, tagging all four sponsors.
+- [ ] Share on X or LinkedIn, tagging all four sponsors; draft prepared, published post URL not recorded.
 - [ ] Submit repo, app, and video on vibeapps.dev before September 22, noon PT.
 
 The earliest local commit is September 13, after the August 25 noon PT cutoff;
