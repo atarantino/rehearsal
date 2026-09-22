@@ -2,7 +2,7 @@
 
 - **Project:** Rehearsal
 - **Event:** Convex All Gas Hackathon
-- **What it does:** Turns interview invitations and job postings into sourced briefs, spoken practice, grounded feedback, and retries.
+- **What it does:** Turns interview invitations, attached prep materials, and job postings into sourced briefs, spoken practice, grounded feedback, and retries.
 - **Live app:** https://acoustic-cuttlefish-868.convex.site
 - **Repo:** https://github.com/atarantino/rehearsal
 - **Frontend:** Convex static hosting
@@ -172,6 +172,32 @@ Removed the redundant transcript read before feedback generation; the Convex cla
 Merged current main into [PR #10](https://github.com/atarantino/rehearsal/pull/10), preserving its voice reliability and grounded-feedback changes. Kept the stronger retry-question validation, which already includes the duplicate-reset removal (`shared/feedback.ts`).
 The application/backend typechecks, production build, and all 47 unit/API and Convex tests passed before pushing the merge. Existing tests were preserved.
 Confirmed the pushed PR was conflict-free and mergeable. These checks were performed during conflict resolution, not rerun for this log update; no deployment was performed.
+
+### 2026-09-22 - 450c80e: researched voice context and workspace
+Integrated Fable’s preparation, live-session and feedback design, including prepared mock selection and responsive layouts (`src/App.tsx`, `src/Preparation.tsx`, `src/style.css`; implementation commit `bebeedc`).
+Convex snapshots the owned structured research brief into each session; voice and reasoning receive the same complete context, with immutable retry snapshots (`convex/sessions.ts`, `server/prompts.ts`).
+`docs/experience-verification.md` records 68 passing tests, a real development Firecrawl-to-voice smoke, and the earlier production release with signup and responsive checks. These are recorded results, not checks rerun during setup.
+
+### 2026-09-22 - 712dec2: email prep materials
+Added PDF, DOCX and plain-text attachment import before email preparation, including attachment-only messages, bounded downloads/parsing and per-file status/retry (`convex/email.ts`, `convex/attachments.ts`, `server/attachment-text.ts`, `src/Preparation.tsx`).
+Private attachment text becomes sourced preparation and reaches the session brief; Convex ownership checks and webhook deduplication remain in place (`convex/research.ts`, `convex/workflows.ts`, `tests/backend.convex.ts`).
+`docs/email-attachments.md` records 75 passing tests and development runtime/UI checks. Provider downloads and webhook delivery were simulated; scanned PDFs and images still need a text-based copy. Tests were not rerun during this setup.
+
+### 2026-09-22 - working tree: All Gas setup verification
+Rechecked the official Convex setup procedure in the existing Codex Linux workspace. The marketplace update and plugin install commands retained enabled `convex@convex-codex-plugin` 1.10.0; its deployment MCP status call succeeded in this session without reading application records.
+Verified managed Convex AI files are current, refreshed both project-local hackathon skill files from their official repository, and confirmed the skill is enabled through Codex’s skills list. No restart is required for these already-loaded integrations.
+Preserved the existing Convex static hosting choice, verified its registered component and HTTP routes, and backfilled the two recent changes from Git and repository documentation. This setup did not build, deploy, publish, submit, commit or push the application.
+
+### 2026-09-22 - bb2b09a: constrain preparation citations
+Fixed brief generation failing after successful attachment import and research: citations are now restricted in the model output schema to the exact supplied public URLs and private attachment anchors (`convex/research.ts`). Runtime validation still rejects unknown citations.
+The 26 Node tests, 32 Convex tests, typechecks and build passed. A real development model call returned verified citations, including an attachment reference. Deployed the backend fix and retried the affected production preparation; it reached ready with all citations verified and the imported attachment cited.
+
+### 2026-09-22 - working tree: quit interviews and responsive voice bars
+Added a visible “Quit interview” button that immediately stops microphone and playback, saves the available transcript, and returns to setup without generating feedback (`src/App.tsx`, `src/live.ts`, `src/style.css`).
+Cancellation also handles pending microphone permission and late session creation; interrupted saves retain the transcript for retry, and successful recovery clears the error banner.
+Updated voice bars to follow measured frequency bands from both speakers, settle during silence or mute, and respect reduced motion (`src/voiceMeter.ts`, `src/live.ts`, `src/style.css`).
+Application/backend typechecks, the production build, and all 23 local browser tests passed; all five quit regressions passed again after the final error-banner fix (`tests/browser.spec.ts`). Tests use simulated voice connections and synthetic audio.
+These are uncommitted changes using the existing session APIs; no deployment or human microphone check was performed. Validation results come from the preceding build session, not reruns for this log update.
 
 ### 2026-09-22 - bb2b09a and working tree: researched context and opportunity management
 Merged the interview workspace redesign and complete researched-brief snapshots for voice practice (`bebeedc`; `convex/sessions.ts`, `src/App.tsx`). The production release and responsive signup checks are recorded in `docs/experience-verification.md`; its real research and short voice check ran on development.

@@ -519,6 +519,18 @@ summary::-webkit-details-marker {
   align-items: center;
   margin: 10px 0 33px;
 }
+.live-exit {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.quit-button {
+  color: #a13245;
+  border-color: #e4bac2;
+}
+.quit-button:hover:not(:disabled) {
+  background: #fff0f2;
+}
 .live-heading .eyebrow {
   margin: 0;
 }

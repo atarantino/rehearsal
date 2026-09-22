@@ -394,6 +394,194 @@ test("coached flow, mute, captions, review, retry comparison, history and deleti
     page.getByRole("heading", { name: /Your practice/ }),
   ).toBeVisible();
 });
+for (const mode of ["coached", "mock"] as const) {
+  test(`quit ${mode} interview saves the transcript without feedback`, async ({
+    page,
+  }) => {
+    await fakeVoice(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await start(page, mode);
+    await speak(page);
+    let feedbackRequests = 0;
+    page.on("request", (request) => {
+      if (request.url().endsWith("/feedback")) feedbackRequests++;
+    });
+    const quit = page.getByRole("button", {
+      name: "Quit interview",
+      exact: true,
+    });
+    await expect(quit).toBeInViewport();
+    await quit.click();
+    await expect(
+      page.getByRole("heading", { name: /Find the words/ }),
+    ).toBeVisible();
+    expect(await page.evaluate(() => (window as any).__peerClosed)).toBe(true);
+    expect(
+      await page.evaluate(() =>
+        (window as any).__tracks.every(
+          (track: MediaStreamTrack) => track.readyState === "ended",
+        ),
+      ),
+    ).toBe(true);
+    expect(feedbackRequests).toBe(0);
+    const sessions = await page.request
+      .get("/api/sessions")
+      .then((r) => r.json());
+    const saved = await page.request
+      .get(`/api/sessions/${sessions[0].id}`)
+      .then((r) => r.json());
+    expect(saved.closeReason).toBe("quit_requested");
+    expect(
+      saved.fragments.some((fragment: any) => fragment.delta === answer),
+    ).toBe(true);
+    expect(saved.feedback).toBeUndefined();
+    await expect(
+      page.getByRole("button", { name: /^Start (practicing|mock interview)$/ }),
+    ).toBeEnabled();
+    await page.getByRole("button", { name: /Session history/ }).click();
+    await page
+      .getByRole("button", { name: /Product manager/ })
+      .first()
+      .click();
+    await page.getByText("Read your transcript").click();
+    await expect(page.getByText(answer, { exact: true })).toBeVisible();
+  });
+}
+
+test("quit while microphone permission is pending stops a late microphone stream", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      value: () =>
+        new Promise<MediaStream>((resolve) => {
+          (window as any).__allowMicrophone = () =>
+            resolve(new MediaStream((window as any).__tracks));
+        }),
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("What role are you preparing for?").fill("Designer");
+  await page
+    .getByRole("button", { name: "Start mock interview", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toHaveText("Connecting");
+  await page
+    .getByRole("button", { name: "Quit interview", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: /Find the words/ }),
+  ).toBeVisible();
+  await page.evaluate(() => (window as any).__allowMicrophone());
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__tracks.every(
+          (track: MediaStreamTrack) => track.readyState === "ended",
+        ),
+      ),
+    )
+    .toBe(true);
+  expect(await page.evaluate(() => (window as any).__peer)).toBeUndefined();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Start mock interview", exact: true }),
+  ).toBeEnabled();
+});
+
+test("quit during session creation closes the late session without connecting audio", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let creating = false;
+  await page.route("**/api/sessions", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    creating = true;
+    await pending;
+    await route.fulfill({ response });
+  });
+  await page.goto("/");
+  await page.getByLabel("What role are you preparing for?").fill("Designer");
+  await page
+    .getByRole("button", { name: "Start mock interview", exact: true })
+    .click();
+  await expect.poll(() => creating).toBe(true);
+  await page
+    .getByRole("button", { name: "Quit interview", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toHaveText("Finishing");
+  expect(await page.evaluate(() => (window as any).__peerClosed)).toBe(true);
+  expect(
+    await page.evaluate(() =>
+      (window as any).__tracks.every(
+        (track: MediaStreamTrack) => track.readyState === "ended",
+      ),
+    ),
+  ).toBe(true);
+  release();
+  await expect(
+    page.getByRole("heading", { name: /Find the words/ }),
+  ).toBeVisible();
+  const sessions = await page.request
+    .get("/api/sessions")
+    .then((r) => r.json());
+  expect(sessions[0].status).toBe("partial");
+  expect(
+    await page.evaluate(() =>
+      (window as any).__sent.some(
+        (e: any) => e.type === "session.instructions.append",
+      ),
+    ),
+  ).toBe(false);
+});
+
+test("quit keeps unsaved transcript available for retry and skips feedback after recovery", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page);
+  let failing = true;
+  await page.route("**/api/sessions/*/events", (route) =>
+    failing
+      ? route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Saving unavailable" }),
+        })
+      : route.continue(),
+  );
+  await speak(page);
+  await page
+    .getByRole("button", { name: "Quit interview", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Retry saving" }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__peerClosed)).toBe(true);
+  failing = false;
+  await page.getByRole("button", { name: "Retry saving" }).click();
+  await expect(
+    page.getByRole("heading", { name: /Find the words/ }),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  const sessions = await page.request
+    .get("/api/sessions")
+    .then((r) => r.json());
+  expect(sessions[0].hasFeedback).toBe(false);
+  const saved = await page.request
+    .get(`/api/sessions/${sessions[0].id}`)
+    .then((r) => r.json());
+  expect(
+    saved.fragments.some((fragment: any) => fragment.delta === answer),
+  ).toBe(true);
+});
+
 test("mock interview completes and next question starts focused practice", async ({
   page,
 }) => {

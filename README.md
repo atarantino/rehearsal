@@ -27,7 +27,7 @@ Saved defaults and opportunity overrides use the signed-in Convex workspace. Loc
 
 ## Develop
 
-Use Node 22.6+ and desktop Chrome with passkey support.
+Use Node 24 and desktop Chrome with passkey support.
 
 ```sh
 npm ci
@@ -52,6 +52,14 @@ npm run dev          # terminal two: http://localhost:4317
 The original personal Express app with local JSON history and Codex subscription reasoning remains available; see [local development](docs/local-development.md). The hosted app uses OpenAI API reasoning and does not require visitors to install Codex.
 
 ## Deploy and verify
+
+GitHub Actions runs the build, unit/backend tests, and browser tests for pull requests to `main`. After a merge (or any push to `main`), successful checks trigger deployment of both the Convex backend and frontend using the existing static-hosting component. The production build gets its Convex URL from that component. Deployments run one at a time without cancelling an active release; superseded commits and old reruns skip publishing. A final check compares the live HTML with the built entry point.
+
+One-time setup: generate a **production deploy key** for `acoustic-cuttlefish-868` in the Convex dashboard, then add it as `CONVEX_DEPLOY_KEY` under this repository's **Settings → Secrets and variables → Actions** (or its `production` environment). The workflow rejects missing keys and keys for another deployment. Keep service keys and auth configuration in Convex; CI only needs the deploy key. Configure the existing production environment once with the script below if it is not already configured.
+
+Once the workflow is on `main` and the secret is set, use **Actions → CI and deploy → Run workflow → main** to publish the latest main commit immediately, or merge the next PR. Each production release is linked from the workflow run. If verification fails, deployment does not start. If static publishing fails after the backend deploys, the previous frontend may remain live with the updated backend; fix the failure and rerun the latest main workflow. To roll back, revert the change in a new PR and merge it.
+
+For a manual deployment:
 
 ```sh
 node scripts/configure-cloud.mjs --prod --site=https://YOUR-PROD-DEPLOYMENT.convex.site

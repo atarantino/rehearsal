@@ -18,6 +18,7 @@ import {
   History,
   Mic,
   MicOff,
+  PhoneOff,
   MoreHorizontal,
   Plus,
   RotateCcw,
@@ -239,6 +240,7 @@ export default function App() {
     setBusy(true);
     setFragments([]);
     setMuted(false);
+    setMutePending(false);
     setSpeaker(null);
     setElapsed(0);
     startedAt.current = 0;
@@ -266,25 +268,36 @@ export default function App() {
       },
       speaker: setSpeaker,
       error: setError,
-      ended: (s) => {
+      cancelled: () => {
+        if (controller.current !== live) return;
         controller.current = undefined;
-        setRecord(s);
-        setView("review");
+        setRecord(undefined);
+        setView("setup");
+        setBusy(false);
+      },
+      ended: (s, quit) => {
+        if (controller.current !== live) return;
+        controller.current = undefined;
+        setRecord(quit ? undefined : s);
+        setView(quit ? "setup" : "review");
+        if (quit) setError("");
         setBusy(false);
         void refresh().catch(() => {});
-        void generateFeedback(s);
+        if (!quit) void generateFeedback(s);
       },
     });
     controller.current = live;
     try {
       await live.start(nextConfig);
     } catch (e) {
+      if (controller.current !== live) return;
       controller.current = undefined;
       setError((e as Error).message);
       setView("setup");
+      setBusy(false);
       void refresh().catch(() => {});
     } finally {
-      setBusy(false);
+      if (controller.current === live) setBusy(false);
     }
   }
   function newPractice() {
@@ -688,6 +701,21 @@ export default function App() {
           )}
           {view === "live" && (
             <section className="live-room">
+              <div className="live-exit">
+                <button
+                  className="secondary quit-button"
+                  disabled={
+                    state === "Finishing" || state === "Save interrupted"
+                  }
+                  onClick={() => {
+                    setError("");
+                    controller.current?.quit();
+                  }}
+                >
+                  <PhoneOff size={16} />
+                  Quit interview
+                </button>
+              </div>
               <div className="live-heading">
                 <span className="eyebrow">
                   {config.mode === "mock"
@@ -823,8 +851,9 @@ export default function App() {
               )}
               {showCaptions && <Transcript fragments={fragments} live />}
               <p className="session-footnote">
-                Ending the conversation closes the voice session before written
-                feedback begins.
+                Quit anytime to save your transcript and return to setup. Choose{" "}
+                {config.mode === "coached" ? "Review answer" : "End & review"}{" "}
+                for written feedback.
               </p>
             </section>
           )}

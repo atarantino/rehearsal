@@ -18,7 +18,8 @@ type Handlers = {
   level: (levels: VoiceLevels) => void;
   speaker: (speaker: "user" | "assistant" | null) => void;
   error: (s: string) => void;
-  ended: (s: PracticeSession) => void;
+  ended: (s: PracticeSession, quit: boolean) => void;
+  cancelled: () => void;
   record: (s: PracticeSession) => void;
 };
 export class LiveSession {
@@ -41,6 +42,8 @@ export class LiveSession {
   private finalWait?: () => void;
   private ending?: Promise<void>;
   private disposed = false;
+  private quitting = false;
+  private creating = false;
   private started = false;
   private interrupted = false;
   private disconnectTimer?: ReturnType<typeof setTimeout>;
@@ -65,11 +68,17 @@ export class LiveSession {
         throw new Error(
           "Open this app over HTTPS in Chrome to use your microphone.",
         );
-      this.mic = await navigator.mediaDevices.getUserMedia({
+      const mic = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },
       });
+      if (this.disposed) {
+        mic.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      this.mic = mic;
       this.context = new AudioContext();
       await this.context.resume();
+      if (this.disposed) return;
       this.micMeter = createVoiceMeter(this.context, this.mic);
       let measuredAt = 0;
       let speaker: "user" | "assistant" | null = null;
@@ -166,7 +175,10 @@ export class LiveSession {
         this.connectionChanged();
       };
       peer.oniceconnectionstatechange = () => this.connectionChanged();
-      await peer.setLocalDescription(await peer.createOffer());
+      const offer = await peer.createOffer();
+      if (this.disposed) return;
+      await peer.setLocalDescription(offer);
+      if (this.disposed) return;
       if (peer.iceGatheringState !== "complete")
         await new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(() => {
@@ -193,11 +205,22 @@ export class LiveSession {
           peer.addEventListener("icegatheringstatechange", onState);
           onState();
         });
+      if (this.disposed) return;
+      this.creating = true;
       const result = await api<{ record: PracticeSession; sdp: string }>(
         "/sessions",
         { config, sdp: peer.localDescription!.sdp },
       );
+      this.creating = false;
       this.record = result.record;
+      if (this.quitting) {
+        await this.end("quit_requested");
+        return;
+      }
+      if (this.disposed) {
+        await api(`/sessions/${this.record.id}/close`, {});
+        return;
+      }
       this.h.record(result.record);
       this.saveTimer = setInterval(() => {
         void this.flush().catch(() =>
@@ -218,6 +241,7 @@ export class LiveSession {
         type: "answer",
         sdp: result.sdp,
       });
+      if (this.disposed) return;
       this.timer = setTimeout(
         () => {
           this.h.error("This practice session reached its time limit.");
@@ -226,6 +250,13 @@ export class LiveSession {
         maxSeconds(config.mode) * 1000,
       );
     } catch (e) {
+      if (this.quitting) {
+        if (this.creating) {
+          this.creating = false;
+          this.h.cancelled();
+        }
+        return;
+      }
       this.cleanup();
       if (this.record)
         await api(`/sessions/${this.record.id}/close`, {}).catch(() => {});
@@ -284,6 +315,7 @@ export class LiveSession {
     void this.end("connection_lost");
   }
   private event(e: any) {
+    if (this.disposed) return;
     if (e.type === "session.started") {
       this.started = true;
       clearTimeout(this.setupTimer);
@@ -381,6 +413,16 @@ export class LiveSession {
     await this.context?.resume();
     await this.audio.play();
   }
+  quit() {
+    if (this.ending || this.quitting) return;
+    this.quitting = true;
+    this.send({ type: "session.close", event_id: crypto.randomUUID() });
+    // Release the microphone and playback immediately, even if saving is slow.
+    this.cleanup();
+    if (this.record) void this.end("quit_requested");
+    else if (this.creating) this.h.state("Finishing");
+    else this.h.cancelled();
+  }
   end(reason = "close_requested"): Promise<void> {
     if (this.ending) return this.ending;
     this.endReason = reason;
@@ -434,7 +476,7 @@ export class LiveSession {
           seconds: this.finalEvent?.usage?.seconds,
         },
       );
-      this.h.ended(record);
+      this.h.ended(record, this.quitting);
     } catch {
       this.cleanup();
       this.h.error(
@@ -459,7 +501,7 @@ export class LiveSession {
         seconds: this.finalEvent?.usage?.seconds,
       },
     );
-    this.h.ended(s);
+    this.h.ended(s, this.quitting);
   }
   cleanup() {
     if (this.disposed) return;
