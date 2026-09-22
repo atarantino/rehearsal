@@ -215,6 +215,11 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
+    // Starting/retrying from a scrolled setup or review must reveal the call's
+    // top controls, including Quit, even when the question changes its height.
+    if (view === "live") window.scrollTo(0, 0);
+  }, [view, record?.id]);
+  useEffect(() => {
     if (view !== "live" || state !== "Connected") return;
     const timer = setInterval(
       () => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)),
