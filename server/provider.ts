@@ -1,7 +1,7 @@
 import { z } from "zod";
 import WebSocket from "ws";
 import {
-  feedbackSchema,
+  feedbackGenerationSchema,
   speakerText,
   type Feedback,
   type PracticeSession,
@@ -155,7 +155,7 @@ export class OpenAIProvider implements Provider {
   }
   async feedback(s: PracticeSession, previous?: PracticeSession) {
     const input = feedbackInput(s, previous);
-    const schema = z.toJSONSchema(feedbackSchema);
+    const schema = z.toJSONSchema(feedbackGenerationSchema);
     delete schema.$schema;
     const data = await this.request("/responses", {
       model: "gpt-5.6-terra",

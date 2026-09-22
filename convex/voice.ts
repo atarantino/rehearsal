@@ -8,7 +8,7 @@ import {
   feedbackInput,
   feedbackInstructions,
 } from "../server/prompts";
-import { feedbackSchema } from "../shared/types";
+import { feedbackGenerationSchema } from "../shared/types";
 import { FeedbackValidationError, validateFeedback } from "../shared/feedback";
 import { openaiRequest, structured } from "./openai";
 export const status = action({
@@ -168,7 +168,7 @@ export const review = action({
       let rejectedFeedback: unknown;
       for (let attempt = 0; attempt < 2; attempt++) {
         const raw = await structured(
-          feedbackSchema,
+          feedbackGenerationSchema,
           "interview_feedback",
           feedbackInstructions +
             (validationError

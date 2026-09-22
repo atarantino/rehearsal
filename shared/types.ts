@@ -39,6 +39,12 @@ export const feedbackSchema = z.object({
   missingDetails: z.array(z.string()).max(4),
   comparison: z.string().nullable(),
   retryQuestion: z.string().nullable(),
+  candidateQuestionsFeedback: evidenceSchema.nullable().optional(),
+});
+// Stored feedback predates candidate Q&A. Generation requires an explicit null
+// while the reader remains compatible with older sessions and fixtures.
+export const feedbackGenerationSchema = feedbackSchema.extend({
+  candidateQuestionsFeedback: evidenceSchema.nullable(),
 });
 export type Feedback = z.infer<typeof feedbackSchema>;
 export type PracticeSession = {
@@ -100,10 +106,20 @@ export function questionFor(config: SessionConfig, previous?: PracticeSession) {
       ? previous.feedback?.retryQuestion || previous.question
       : previous.question;
   if (previous && config.relation === "next")
-    return questions[
-      (questions.indexOf(previous.question) + 1) % questions.length
-    ];
-  return questions[0];
+    return nextQuestion(config, previous.question);
+  return (
+    config.startingQuestion ||
+    config.preparationBrief?.questions[0] ||
+    questions[0]
+  );
+}
+export function nextQuestion(config: SessionConfig, previousQuestion: string) {
+  const prepared = config.preparationBrief?.questions ?? [];
+  const index = prepared.indexOf(previousQuestion);
+  if (index >= 0 && index + 1 < prepared.length) return prepared[index + 1];
+  const generic = questions.indexOf(previousQuestion);
+  if (index < 0 && generic < 0 && prepared.length) return prepared[0];
+  return questions[(generic + 1) % questions.length];
 }
 export const maxSeconds = (mode: SessionConfig["mode"]) =>
   mode === "mock" ? 1200 : 300;

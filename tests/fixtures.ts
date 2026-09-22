@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { feedbackSections } from "../shared/feedback.js";
 import {
   speakerText,
   type PracticeSession,
@@ -35,7 +36,14 @@ export function sampleFeedback(
   s: PracticeSession,
   previous?: PracticeSession,
 ): Feedback {
-  const text = speakerText(s.fragments, "user");
+  const sections = feedbackSections(s);
+  const text = sections.interview
+    .filter((turn) => turn.speaker === "user")
+    .map((turn) => turn.text)
+    .join("");
+  const candidateQuestion = sections.candidateQuestions.find(
+    (turn) => turn.speaker === "user",
+  );
   return {
     summary:
       s.status === "partial"
@@ -75,6 +83,14 @@ export function sampleFeedback(
       "What changed because of your decision?",
     ],
     retryQuestion: null,
+    candidateQuestionsFeedback: candidateQuestion
+      ? {
+          title: "You explored the role",
+          quote: candidateQuestion.text,
+          detail:
+            "Confirm the details that matter to you with the real interviewer.",
+        }
+      : null,
     comparison: previous
       ? "This attempt makes your actions easier to identify. Explain the outcome next."
       : null,

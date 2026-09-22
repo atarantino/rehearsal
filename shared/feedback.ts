@@ -1,4 +1,5 @@
-import { feedbackSchema, speakerText, type PracticeSession } from "./types";
+import { feedbackSchema, type PracticeSession } from "./types";
+import { isCandidateQuestionsHandoff } from "./interview";
 
 export class FeedbackValidationError extends Error {
   constructor(
@@ -22,6 +23,22 @@ export function feedbackTranscript(s: PracticeSession) {
     else turns.push({ speaker: fragment.speaker, text: fragment.delta });
   }
   return turns;
+}
+
+export function feedbackSections(s: PracticeSession) {
+  const turns = feedbackTranscript(s);
+  const boundary =
+    s.config.mode === "mock"
+      ? turns.findIndex(
+          (turn) =>
+            turn.speaker === "assistant" &&
+            isCandidateQuestionsHandoff(turn.text),
+        )
+      : -1;
+  return {
+    interview: boundary < 0 ? turns : turns.slice(0, boundary),
+    candidateQuestions: boundary < 0 ? [] : turns.slice(boundary),
+  };
 }
 
 // Only whitespace and typographic quote marks are equivalent. Keep offsets so
@@ -69,11 +86,25 @@ function originalQuote(quote: string, sources: string[]): string | null {
 
 export function validateFeedback(raw: unknown, s: PracticeSession) {
   const f = feedbackSchema.parse(raw);
-  const transcript = feedbackTranscript(s);
+  const { interview: transcript, candidateQuestions } = feedbackSections(s);
   const userTurns = transcript
     .filter((turn) => turn.speaker === "user")
     .map((turn) => turn.text);
-  const text = speakerText(s.fragments, "user");
+  const text = userTurns.join(" ");
+  if (f.candidateQuestionsFeedback) {
+    const quote = originalQuote(
+      f.candidateQuestionsFeedback.quote,
+      candidateQuestions
+        .filter((turn) => turn.speaker === "user")
+        .map((turn) => turn.text),
+    );
+    if (quote === null)
+      throw new FeedbackValidationError(
+        "The candidate-question reflection contained an unverified quote. Retry feedback.",
+        "candidateQuestionsFeedback.quote",
+      );
+    f.candidateQuestionsFeedback.quote = quote;
+  }
   for (const group of ["strengths", "improvements"] as const)
     for (const [index, item] of f[group].entries()) {
       const quote = originalQuote(item.quote, userTurns);
@@ -98,12 +129,18 @@ export function validateFeedback(raw: unknown, s: PracticeSession) {
         .filter((turn) => turn.speaker === "assistant")
         .map((turn) => turn.text),
     );
-    if (question === null)
+    if (question === null || isCandidateQuestionsHandoff(question))
       throw new FeedbackValidationError(
         "The suggested retry question could not be verified. Retry feedback.",
         "retryQuestion",
       );
     f.retryQuestion = question;
+  }
+  if (!userTurns.some((turn) => turn.trim())) {
+    f.insufficientEvidence = true;
+    f.outline = [];
+    f.missingDetails = [];
+    f.retryQuestion = null;
   }
   const facts = (
     text +

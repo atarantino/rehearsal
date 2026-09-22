@@ -774,6 +774,138 @@ test("coached hard limit ends the voice session even without clicking Review", a
       ),
     ),
   ).toBe(true);
+  expect(
+    await page.evaluate(() =>
+      (window as any).__sent.filter(
+        (e: any) => e.type === "session.thinking.append",
+      ),
+    ),
+  ).toEqual([]);
+});
+
+test("mock clock cues respect mute, resume at the current phase, and stop after quit", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await page.clock.install();
+  await start(page, "mock");
+  const cues = () =>
+    page.evaluate(() =>
+      (window as any).__sent.filter(
+        (e: any) => e.type === "session.thinking.append",
+      ),
+    );
+  await page.evaluate(() =>
+    (window as any).__channel.emit({ type: "session.started" }),
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__sent.filter(
+          (e: any) => e.type === "session.instructions.append",
+        ).length,
+    ),
+  ).toBe(1);
+  await page.clock.fastForward(480000);
+  expect(await cues()).toHaveLength(1);
+  expect((await cues())[0].content).toContain("8 minutes");
+  await page.getByRole("button", { name: "Mute", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Unmute", exact: true }),
+  ).toBeVisible();
+  await page.clock.fastForward(430000);
+  expect(await cues()).toHaveLength(1);
+  await page.getByRole("button", { name: "Unmute", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Mute", exact: true }),
+  ).toBeVisible();
+  await page.clock.fastForward(1000);
+  expect(await cues()).toHaveLength(2);
+  expect((await cues())[1].content).toContain("15 minutes");
+  await page
+    .getByRole("button", { name: "Quit interview", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: /Find the words/ }),
+  ).toBeVisible();
+  await page.clock.fastForward(200000);
+  expect(await cues()).toHaveLength(2);
+});
+
+test("mock clock never sends cues during a disconnected transport", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await page.clock.install();
+  await start(page, "mock");
+  await page.clock.fastForward(479000);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.connectionState = "disconnected";
+    peer.iceConnectionState = "disconnected";
+    peer.onconnectionstatechange();
+  });
+  await page.clock.fastForward(2000);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__sent.filter(
+          (e: any) => e.type === "session.thinking.append",
+        ).length,
+    ),
+  ).toBe(0);
+  await page.evaluate(() => {
+    const peer = (window as any).__peer;
+    peer.connectionState = "connected";
+    peer.iceConnectionState = "connected";
+    peer.onconnectionstatechange();
+  });
+  await page.clock.fastForward(1000);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__sent.filter(
+          (e: any) => e.type === "session.thinking.append",
+        ).length,
+    ),
+  ).toBe(1);
+  await page
+    .getByRole("button", { name: "Quit interview", exact: true })
+    .click();
+});
+
+test("mock Q&A gets its own reflection and preserves the behavioral answer for review", async ({
+  page,
+}) => {
+  await fakeVoice(page);
+  await start(page, "mock");
+  await speak(page);
+  await page.evaluate(() => {
+    const c = (window as any).__channel;
+    [
+      ["output", "What questions do you ", 2000],
+      ["output", "have for me?", 2100],
+      ["input", "How does the team support new hires?", 3000],
+      ["output", "I don't know; ask your real interviewer.", 4000],
+    ].forEach(([speaker, delta, start], i) =>
+      c.emit({
+        type: `session.${speaker}_transcript.delta`,
+        event_id: `qa-${i}`,
+        delta,
+        start_ms: start,
+        end_ms: Number(start) + 100,
+      }),
+    );
+  });
+  await page.getByRole("button", { name: "End & review" }).click();
+  const qa = page.locator(".candidate-questions-review");
+  await expect(
+    qa.getByText("How does the team support new hires?", { exact: false }),
+  ).toBeVisible();
+  await expect(page.locator(".feedback-grid")).not.toContainText(
+    "How does the team support",
+  );
+  await expect(page.locator(".feedback-grid")).toContainText(answer);
 });
 test("saving failure can be recovered without losing captured fragments", async ({
   page,

@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { coachedOpening, mockOpening, mockClockCue } from "../shared/interview";
 import {
   createVoiceMeter,
   voiceBarCount,
@@ -34,6 +35,10 @@ export class LiveSession {
   private timer?: ReturnType<typeof setTimeout>;
   private setupTimer?: ReturnType<typeof setTimeout>;
   private saveTimer?: ReturnType<typeof setInterval>;
+  private agendaTimer?: ReturnType<typeof setInterval>;
+  private startedAt = 0;
+  private lastClockCue = -1;
+  private muted = false;
   private record?: PracticeSession;
   private fragments: Fragment[] = [];
   private pending: Fragment[] = [];
@@ -58,8 +63,37 @@ export class LiveSession {
     this.audio.autoplay = true;
   }
   private send(event: object) {
-    if (this.channel?.readyState === "open")
+    if (this.channel?.readyState === "open") {
       this.channel.send(JSON.stringify(event));
+      return true;
+    }
+    return false;
+  }
+  private updateAgenda() {
+    if (
+      this.record?.config.mode !== "mock" ||
+      !this.started ||
+      this.disposed ||
+      this.ending ||
+      this.quitting ||
+      this.interrupted ||
+      this.muted
+    )
+      return;
+    const cue = mockClockCue(
+      (Date.now() - this.startedAt) / 1000,
+      this.lastClockCue,
+    );
+    if (
+      cue &&
+      this.send({
+        type: "session.thinking.append",
+        event_id: crypto.randomUUID(),
+        delegation_id: null,
+        content: cue.content,
+      })
+    )
+      this.lastClockCue = cue.index;
   }
   async start(config: SessionConfig) {
     this.h.state("Connecting");
@@ -317,7 +351,9 @@ export class LiveSession {
   private event(e: any) {
     if (this.disposed) return;
     if (e.type === "session.started") {
+      if (this.started || this.ending || this.quitting) return;
       this.started = true;
+      this.startedAt = Date.now();
       clearTimeout(this.setupTimer);
       this.h.state("Connected");
       this.send({
@@ -325,8 +361,10 @@ export class LiveSession {
         event_id: crypto.randomUUID(),
         delegation_id: null,
         content:
-          "Begin now: briefly welcome the candidate, then ask the starting question from the reference data. Ask it as one clear question and wait for their answer. Do not read setup or earlier feedback aloud.",
+          this.record?.config.mode === "mock" ? mockOpening : coachedOpening,
       });
+      if (this.record?.config.mode === "mock")
+        this.agendaTimer = setInterval(() => this.updateAgenda(), 1000);
     } else if (
       e.type === "session.input_transcript.delta" ||
       e.type === "session.output_transcript.delta"
@@ -388,6 +426,7 @@ export class LiveSession {
     return this.saving;
   }
   async mute(muted: boolean) {
+    this.muted = muted;
     this.mic?.getAudioTracks().forEach((t) => (t.enabled = !muted));
     const id = crypto.randomUUID();
     try {
@@ -405,6 +444,7 @@ export class LiveSession {
         });
       });
     } catch (e) {
+      this.muted = !muted;
       this.mic?.getAudioTracks().forEach((t) => (t.enabled = muted));
       throw e;
     }
@@ -434,6 +474,7 @@ export class LiveSession {
     clearTimeout(this.timer);
     clearTimeout(this.setupTimer);
     clearInterval(this.saveTimer);
+    clearInterval(this.agendaTimer);
     clearTimeout(this.disconnectTimer);
     this.mic?.getAudioTracks().forEach((t) => (t.enabled = false));
     this.audio.muted = true;
@@ -509,6 +550,7 @@ export class LiveSession {
     clearTimeout(this.timer);
     clearTimeout(this.setupTimer);
     clearInterval(this.saveTimer);
+    clearInterval(this.agendaTimer);
     clearTimeout(this.disconnectTimer);
     cancelAnimationFrame(this.animation);
     if (this.muteAck) {

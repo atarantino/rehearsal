@@ -249,6 +249,7 @@ export function createApp(
       : undefined;
     if (previous && config.relation === "retry") {
       config.resumeText = previous.config.resumeText ?? "";
+      config.preparationBrief = previous.config.preparationBrief;
     }
     const s: PracticeSession = {
       version: 1,
@@ -263,6 +264,8 @@ export function createApp(
       backendUsage: {},
       reasoningBackend: provider.reasoningBackend || "api",
     };
+    if (config.startingQuestion || config.preparationBrief)
+      s.config.startingQuestion = s.question;
     if (active)
       throw new AppError(
         "Another interview is still open. End it before starting a new one.",

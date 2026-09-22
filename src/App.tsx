@@ -325,6 +325,8 @@ export default function App() {
       mode: "coached" as const,
       previousId: record.id,
       relation,
+      startingQuestion:
+        relation === "next" ? undefined : record.config.startingQuestion,
     };
     setConfig(c);
     void start(undefined, c);
@@ -733,7 +735,7 @@ export default function App() {
                 {briefOf(record?.config ?? config)
                   ? `At ${briefOf(record?.config ?? config)!.company}. Questions draw on your researched brief.`
                   : config.mode === "mock"
-                    ? "Let your experience lead the conversation."
+                    ? "Experience questions, time for your questions, then a brief wrap-up."
                     : "One answer at a time. Review when you’re ready."}
               </p>
               {config.startingQuestion && config.mode === "coached" && (
@@ -845,8 +847,8 @@ export default function App() {
               </div>
               {elapsed >= 900 && config.mode === "mock" && (
                 <p className="muted">
-                  You’ve reached the 15-minute target. Finish your thought, then
-                  review.
+                  You’ve reached the 15-minute target. Finish your questions and
+                  wrap up when you’re ready.
                 </p>
               )}
               {showCaptions && <Transcript fragments={fragments} live />}
@@ -1026,6 +1028,20 @@ export default function App() {
                           </ul>
                         </div>
                       )}
+                    </section>
+                  )}
+                  {record.feedback.candidateQuestionsFeedback && (
+                    <section className="feedback-panel candidate-questions-review">
+                      <span className="eyebrow">
+                        Your questions for the interviewer
+                      </span>
+                      <h2>
+                        {record.feedback.candidateQuestionsFeedback.title}
+                      </h2>
+                      <blockquote>
+                        “{record.feedback.candidateQuestionsFeedback.quote}”
+                      </blockquote>
+                      <p>{record.feedback.candidateQuestionsFeedback.detail}</p>
                     </section>
                   )}
                   {record.feedback.comparison && (
