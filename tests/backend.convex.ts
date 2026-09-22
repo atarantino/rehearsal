@@ -48,10 +48,10 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 describe("voice review recovery", () => {
-  async function endedSession() {
+  async function endedSession(mode: "coached" | "mock" = "coached") {
     const context = await setup();
     const id = await context.a.mutation(internal.sessions.reserve, {
-      config,
+      config: { ...config, mode },
       requestId: "review",
     });
     await context.a.mutation(api.sessions.append, {
@@ -77,6 +77,52 @@ describe("voice review recovery", () => {
       }),
     );
   }
+  it("stores Q&A reflection separately and retries a response that quotes it as behavioral evidence", async () => {
+    const { a, b, id } = await endedSession("mock");
+    const qa = [
+      {
+        ...fragment,
+        event_id: "handoff",
+        speaker: "assistant" as const,
+        delta: "What questions do you have for me?",
+        start_ms: 2000,
+        end_ms: 3000,
+      },
+      {
+        ...fragment,
+        event_id: "question",
+        delta: "How is onboarding organized?",
+        start_ms: 4000,
+        end_ms: 5000,
+      },
+    ];
+    await a.mutation(api.sessions.append, { id, fragments: qa });
+    const current = await a.query(api.sessions.get, { id });
+    const good = sampleFeedback(current);
+    const bad = {
+      ...good,
+      strengths: [{ ...good.strengths[0], quote: qa[1].delta }],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(modelResult(bad))
+      .mockResolvedValueOnce(modelResult(good));
+    vi.stubGlobal("fetch", fetchMock);
+    const reviewed = await a.action(api.voice.review, { id });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(reviewed.feedback?.candidateQuestionsFeedback?.quote).toBe(
+      qa[1].delta,
+    );
+    expect(reviewed.feedback?.strengths[0].quote).toBe(fragment.delta);
+    const input = JSON.parse(JSON.parse(fetchMock.mock.calls[0][1].body).input);
+    expect(input.transcript).toEqual([
+      { speaker: "user", text: fragment.delta },
+    ]);
+    expect(input.candidateQuestionsTranscript).toHaveLength(2);
+    await expect(b.query(api.sessions.get, { id })).rejects.toThrow(
+      "Session not found",
+    );
+  });
   it("returns a safe retryable error after two invalid quotes, preserving the transcript for a successful retry", async () => {
     const { a, b, t, id, session } = await endedSession();
     const good = sampleFeedback(session);
@@ -411,6 +457,58 @@ describe("preparation efficiency", () => {
     );
     return { ...context, id };
   }
+  it("selects the next saved brief question server-side and preserves it on retry", async () => {
+    const { a, b, t, id } = await prepared();
+    const preparedQuestions = [
+      "Describe a migration.",
+      "How did you test the rollout?",
+    ];
+    await t.mutation(internal.preparation.update, {
+      id,
+      status: "ready",
+      brief: { ...brief, questions: preparedQuestions },
+    });
+    const first = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, opportunityId: id },
+      requestId: "next-first",
+    });
+    await a.mutation(api.sessions.finalize, {
+      id: first,
+      confirmed: true,
+      reason: "done",
+    });
+    const nextConfig = {
+      ...config,
+      opportunityId: id,
+      previousId: first,
+      relation: "next" as const,
+    };
+    await expect(
+      b.mutation(internal.sessions.reserve, {
+        config: nextConfig,
+        requestId: "wrong-owner-next",
+      }),
+    ).rejects.toThrow("Session not found");
+    const next = await a.mutation(internal.sessions.reserve, {
+      config: nextConfig,
+      requestId: "next-second",
+    });
+    const session = await a.query(api.sessions.get, { id: next });
+    expect(session.question).toBe(preparedQuestions[1]);
+    expect(session.config.startingQuestion).toBe(preparedQuestions[1]);
+    await a.mutation(api.sessions.finalize, {
+      id: next,
+      confirmed: true,
+      reason: "done",
+    });
+    const retry = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, previousId: next, relation: "retry" },
+      requestId: "next-retry",
+    });
+    expect((await a.query(api.sessions.get, { id: retry })).question).toBe(
+      preparedQuestions[1],
+    );
+  });
   it("carries a Firecrawl-grounded brief intact into both mock voice contexts and freezes it for retries", async () => {
     const { a, b, t, id } = await prepared();
     const longBrief = {
@@ -814,22 +912,20 @@ describe("preparation efficiency", () => {
         },
       ],
     };
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(
-        async () =>
-          new Response(
-            JSON.stringify({
-              output: [
-                {
-                  content: [
-                    { type: "output_text", text: JSON.stringify(output) },
-                  ],
-                },
-              ],
-            }),
-          ),
-      );
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            output: [
+              {
+                content: [
+                  { type: "output_text", text: JSON.stringify(output) },
+                ],
+              },
+            ],
+          }),
+        ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const result = await t.action(internal.research.writeBrief, {
       id,

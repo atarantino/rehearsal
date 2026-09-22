@@ -17,6 +17,16 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 
 Passkey signup is open without an invitation. Focused practice covers one interview question with up to two follow-ups and lasts up to five minutes per attempt; mock interviews have a twenty-minute maximum. Feedback quotes must match current user speech exactly. Unsupported numeric outline claims are rejected. A retry keeps the question and compares attempts.
 
+## Mock interview flow
+
+Mock interviews open as an explicit practice simulation with an agenda: experience questions, candidate questions, then a wrap-up. The browser sends quiet clock context at 8, 12, 15, and 18 minutes, asking the interviewer to transition after the current answer. Muting or a disconnected voice transport delays cues; recovery sends only the latest relevant cue. The 20-minute hard cap remains, and End & review stays under the user's control. Focused practice keeps its five-minute, two-follow-up limit.
+
+The interviewer offers candidate Q&A with “What questions do you have for me?” and uses only supplied role/brief facts, acknowledging unknown company details. Review separates a recognized spoken Q&A handoff from behavioral answers: candidate questions get their own quoted reflection and cannot supply behavioral feedback quotes, retry questions, or outline metrics. This boundary is derived from transcript wording (including common variants), not a provider phase event; an unrecognized paraphrase still relies on coaching instructions to exclude Q&A. Timing cues are guidance, not a guarantee of exact spoken timing.
+
+For a prepared opportunity, **Next question** advances through the current brief's questions before the generic fallback. A retry keeps its selected question and saved preparation context.
+
+See [realism checks](docs/interview-realism.md) for automated coverage and the opt-in synthetic voice check.
+
 ## Resumes
 
 Save an optional default resume in **Your resume**. Paste text or import a text-based PDF or Word `.docx`, review the extracted text, then save. Imports run in a browser worker; original documents are not uploaded or retained. Files are limited to 5 MB, PDFs to 10 pages, and saved text to 15,000 characters. Scanned or password-protected PDFs and older `.doc` files need an unlocked/text-based export or pasted text. Review column layouts carefully; extraction does not preserve formatting. Oversized text must be edited before saving and is never silently cut.

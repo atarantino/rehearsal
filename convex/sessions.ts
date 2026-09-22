@@ -21,6 +21,7 @@ import {
   fragmentSchema,
   maxSeconds,
   questions,
+  nextQuestion,
   type PracticeSession,
 } from "../shared/types";
 import { requireUser } from "./users";
@@ -108,6 +109,7 @@ export const reserve = internalMutation({
       previous = await owned(ctx, prevId);
     }
     const isRetry = !!previous && config.relation === "retry";
+    if (previous && config.relation === "next") delete config.startingQuestion;
     if (isRetry) {
       config = {
         ...previous!.record.config,
@@ -145,12 +147,10 @@ export const reserve = internalMutation({
       const prev = previous;
       if (config.relation === "retry")
         question = prev.record.feedback?.retryQuestion || prev.record.question;
-      else
-        question =
-          questions[
-            (questions.indexOf(prev.record.question) + 1) % questions.length
-          ];
+      else question = nextQuestion(config, prev.record.question);
     }
+    if (config.startingQuestion || config.preparationBrief)
+      config.startingQuestion = question;
     configSchema.parse(config);
     const now = Date.now();
     const id = await ctx.db.insert("sessions", {

@@ -1,4 +1,8 @@
-import { feedbackSchema, speakerText, type PracticeSession } from "./types";
+import { feedbackSchema, type Fragment, type PracticeSession } from "./types";
+import {
+  candidateQuestionsHandoffMatch,
+  isCandidateQuestionsHandoff,
+} from "./interview";
 
 export class FeedbackValidationError extends Error {
   constructor(
@@ -12,8 +16,11 @@ export class FeedbackValidationError extends Error {
 
 // Join streaming deltas without adding spaces or changing speaker order.
 export function feedbackTranscript(s: PracticeSession) {
+  return transcriptFromFragments(s.fragments);
+}
+function transcriptFromFragments(fragments: Fragment[]) {
   const turns: { speaker: "user" | "assistant"; text: string }[] = [];
-  for (const fragment of [...s.fragments].sort(
+  for (const fragment of [...fragments].sort(
     (a, b) => a.start_ms - b.start_ms,
   )) {
     if (!fragment.delta) continue;
@@ -22,6 +29,37 @@ export function feedbackTranscript(s: PracticeSession) {
     else turns.push({ speaker: fragment.speaker, text: fragment.delta });
   }
   return turns;
+}
+
+export function feedbackSections(s: PracticeSession) {
+  if (s.config.mode !== "mock")
+    return { interview: feedbackTranscript(s), candidateQuestions: [] };
+  const assistant = s.fragments
+    .filter((f) => f.speaker === "assistant")
+    .sort((a, b) => a.start_ms - b.start_ms);
+  const text = assistant.map((f) => f.delta).join("");
+  const match = candidateQuestionsHandoffMatch(text);
+  if (!match)
+    return { interview: feedbackTranscript(s), candidateQuestions: [] };
+  let offset = 0;
+  const handoff = assistant.filter((f) => {
+    const start = offset;
+    offset += f.delta.length;
+    return offset > match.start && start < match.end;
+  });
+  const start = Math.min(...handoff.map((f) => f.start_ms));
+  const end = Math.max(...handoff.map((f) => f.end_ms));
+  // Input/output transcript ranges can overlap and arrive late. User fragments
+  // that began before the spoken handoff finished remain answer evidence, even
+  // if an assistant fragment sorts between two pieces of that answer.
+  const before = (f: Fragment) =>
+    f.speaker === "user" ? f.start_ms < end : f.start_ms < start;
+  return {
+    interview: transcriptFromFragments(s.fragments.filter(before)),
+    candidateQuestions: transcriptFromFragments(
+      s.fragments.filter((f) => !before(f)),
+    ),
+  };
 }
 
 // Only whitespace and typographic quote marks are equivalent. Keep offsets so
@@ -69,11 +107,25 @@ function originalQuote(quote: string, sources: string[]): string | null {
 
 export function validateFeedback(raw: unknown, s: PracticeSession) {
   const f = feedbackSchema.parse(raw);
-  const transcript = feedbackTranscript(s);
+  const { interview: transcript, candidateQuestions } = feedbackSections(s);
   const userTurns = transcript
     .filter((turn) => turn.speaker === "user")
     .map((turn) => turn.text);
-  const text = speakerText(s.fragments, "user");
+  const text = userTurns.join(" ");
+  if (f.candidateQuestionsFeedback) {
+    const quote = originalQuote(
+      f.candidateQuestionsFeedback.quote,
+      candidateQuestions
+        .filter((turn) => turn.speaker === "user")
+        .map((turn) => turn.text),
+    );
+    if (quote === null)
+      throw new FeedbackValidationError(
+        "The candidate-question reflection contained an unverified quote. Retry feedback.",
+        "candidateQuestionsFeedback.quote",
+      );
+    f.candidateQuestionsFeedback.quote = quote;
+  }
   for (const group of ["strengths", "improvements"] as const)
     for (const [index, item] of f[group].entries()) {
       const quote = originalQuote(item.quote, userTurns);
@@ -98,12 +150,18 @@ export function validateFeedback(raw: unknown, s: PracticeSession) {
         .filter((turn) => turn.speaker === "assistant")
         .map((turn) => turn.text),
     );
-    if (question === null)
+    if (question === null || isCandidateQuestionsHandoff(question))
       throw new FeedbackValidationError(
         "The suggested retry question could not be verified. Retry feedback.",
         "retryQuestion",
       );
     f.retryQuestion = question;
+  }
+  if (!userTurns.some((turn) => turn.trim())) {
+    f.insufficientEvidence = true;
+    f.outline = [];
+    f.missingDetails = [];
+    f.retryQuestion = null;
   }
   const facts = (
     text +

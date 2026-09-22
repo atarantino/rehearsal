@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { feedbackSchema, type PracticeSession } from "../shared/types.js";
+import {
+  feedbackGenerationSchema,
+  type PracticeSession,
+} from "../shared/types.js";
+import { mockInterviewInstructions } from "../shared/interview.js";
 import { AppError, OpenAIProvider, validateFeedback } from "./provider.js";
 import { CodexRunner, CodexError } from "./codex.js";
 import { feedbackInstructions, feedbackInput, liveConfig } from "./prompts.js";
@@ -32,7 +36,7 @@ export class SubscriptionProvider extends OpenAIProvider {
   async feedback(s: PracticeSession, previous?: PracticeSession) {
     try {
       const raw = await this.runner.run(
-        feedbackSchema,
+        feedbackGenerationSchema,
         feedbackInstructions,
         feedbackInput(s, previous),
       );
@@ -52,7 +56,7 @@ export class SubscriptionProvider extends OpenAIProvider {
   async followup(s: PracticeSession, signal: AbortSignal) {
     const result = await this.runner.run(
       followupSchema,
-      `Help a warm but probing behavioral interviewer decide what to ask next. The supplied fragments may overlap, contain corrections, or be incomplete. Use the most recent evidence. Return one concise suggested spoken question or clarification, at most 80 words. Do not grade or coach aloud. Never invent the user's experience. For coached mode, stay on the original question, ask no more than two relevant follow-ups, then invite them to click Review answer. For mock mode, cover ownership, decisions, collaboration, setbacks, results and reflection across the conversation. Do not repeat a question already answered. A late result is context for the ongoing conversation, not permission to interrupt or ignore newer user corrections.`,
+      `Help a warm but probing behavioral interviewer decide what to ask next. The supplied fragments may overlap, contain corrections, or be incomplete. Use the most recent evidence. Return one concise suggested spoken question or clarification, at most 80 words. Do not grade or coach aloud. Never invent the user's experience. For coached mode, stay on the original question, ask no more than two relevant follow-ups, then invite them to click Review answer. For mock mode: ${mockInterviewInstructions} If candidateQuestionsTranscript is nonempty, the candidate Q&A handoff has already happened: respond to their question using sourced context or admit unknowns; do not propose another behavioral interview question. Do not repeat a question already answered. A late result is context for the ongoing conversation, not permission to interrupt or ignore newer user corrections.`,
       feedbackInput(s),
       signal,
       45000,

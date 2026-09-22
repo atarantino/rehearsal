@@ -50,6 +50,7 @@ export const feedback = v.object({
   missingDetails: v.array(v.string()),
   comparison: v.union(v.string(), v.null()),
   retryQuestion: v.union(v.string(), v.null()),
+  candidateQuestionsFeedback: v.optional(v.union(evidence, v.null())),
 });
 export const record = v.object({
   version: v.literal(1),

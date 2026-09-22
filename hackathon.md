@@ -10,9 +10,9 @@
 - **Components:** @convex-dev/auth (core, passkey, username), @convex-dev/workflow, @convex-dev/rate-limiter, @convex-dev/static-hosting
 - **Convex features:** schema, indexes, queries, mutations, actions, HTTP actions, realtime queries, scheduled functions, file storage
 - **Auth:** Convex Auth
-- **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; Codex subscription reasoning remains available in local mode
+- **AI models:** gpt-live-1 and gpt-5.6-terra in the hosted app; gpt-4o-mini-tts for synthetic voice evaluation; Codex subscription reasoning remains available in local mode
 - **Started:** 2026-09-13T23:50:19Z
-- **Last updated:** 2026-09-22T16:04:20Z
+- **Last updated:** 2026-09-22T17:23:48Z
 
 ## Log
 
@@ -206,6 +206,13 @@ In the working tree, the selected ready brief now prefills the role and practice
 Added confirmed opportunity and prep-material deletion, and made existing resume deletion controls clearer (`src/DeleteSaved.tsx`, `src/Preparation.tsx`, `src/Resume.tsx`). Ownership-checked Convex mutations cancel active preparation when deleting an opportunity and tolerate late updates without recreating it (`convex/preparation.ts`).
 Removing a material clears the derived brief and offers preparation from the remaining sources; saved session snapshots remain available. Realtime selection and resume queries handle deleted opportunities without retaining stale practice context (`convex/preparation.ts`, `convex/resumes.ts`, `src/Preparation.tsx`).
 During this build session, the build and all 36 backend tests passed, including deletion ownership, workflow cancellation, and stale-brief rejection (`tests/backend.convex.ts`). Browser checks with simulated backend responses covered autofill, manual edits, mobile confirmation/cancel, delete failure/retry, both resume removals, and last-opportunity removal. The backend changes pushed successfully to development; the working-tree UI was not published to production. No checks or deployments were rerun for this log update.
+
+### 2026-09-22 - 19d1805: paced mock interviews and candidate questions
+The previously logged opportunity-management work is now on main (`c89f961`, PR #19). Added a roughly 15-minute mock agenda, quiet clock cues, candidate Q&A, and a natural closing in [PR #20](https://github.com/atarantino/rehearsal/pull/20) (`shared/interview.ts`, `src/live.ts`).
+Separated candidate-question reflection from behavioral evidence, preserved overlapping answer fragments, and advanced through prepared questions using the owned brief; Convex mutations retain retry snapshots and actions validate feedback (`shared/feedback.ts`, `convex/sessions.ts`, `convex/voice.ts`). Retry labels now show the actual question, and entering a call reveals its controls on mobile (`src/App.tsx`).
+[Fable approved the revised PR](https://github.com/atarantino/rehearsal/pull/20#issuecomment-5780919138) after its findings were fixed and independently passed 11 focused tests. Build/typechecks and all 97 tests passed: 33 unit/integration, 38 Convex, and 26 browser; GitHub verification passed.
+Real-provider synthetic mock and focused checks exercised thinking pauses and validated feedback; the mock also reached Q&A, admitted unknown employer facts, and closed naturally (`scripts/evaluate-interview.ts`, `docs/interview-realism.md`). Accelerated WebSocket checks do not establish full-length human/WebRTC reliability or guaranteed transition timing.
+Validated the backend on development. PR #20 remains open; no production release was made for this feature. These results come from the implementation session, not tests or deployments rerun for this log update.
 
 ## Submission readiness
 
