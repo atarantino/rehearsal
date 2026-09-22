@@ -580,6 +580,10 @@ describe("preparation efficiency", () => {
       jobUrl: jobSource.url,
     });
     expect(input.sources).toEqual([jobSource]);
+    expect(
+      request.text.format.schema.properties.focusAreas.items.properties
+        .sourceUrl,
+    ).toEqual({ type: "string", enum: [jobSource.url] });
     expect(request.input.split(jobSource.text)).toHaveLength(2);
     fetchMock.mockResolvedValue(
       new Response(
@@ -611,7 +615,58 @@ describe("preparation efficiency", () => {
         extracted,
         sources: [jobSource],
       }),
-    ).rejects.toThrow("Unverified citation");
+    ).rejects.toThrow(/Invalid (input|option)/);
+  });
+  it("constrains mixed PDF and public citations at generation time and preserves exact attachment anchors", async () => {
+    const { t, id } = await prepared();
+    vi.stubEnv("OPENAI_API_KEY", "test-only");
+    const attachmentSource = {
+      url: "#attachment-guide%2Ftechnical%3D",
+      title: "Technical prep.pdf",
+      text: "Prepare a system design tradeoff example.",
+    };
+    const output = {
+      ...brief,
+      focusAreas: [
+        {
+          topic: "Tradeoffs",
+          why: attachmentSource.text,
+          sourceUrl: attachmentSource.url,
+        },
+      ],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({
+              output: [
+                {
+                  content: [
+                    { type: "output_text", text: JSON.stringify(output) },
+                  ],
+                },
+              ],
+            }),
+          ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await t.action(internal.research.writeBrief, {
+      id,
+      extracted,
+      sources: [attachmentSource, jobSource, jobSource],
+    });
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(
+      request.text.format.schema.properties.focusAreas.items.properties
+        .sourceUrl.enum,
+    ).toEqual([attachmentSource.url, jobSource.url]);
+    expect(result.focusAreas[0].sourceUrl).toBe(attachmentSource.url);
+    await expect(
+      t.action(internal.research.writeBrief, { id, extracted, sources: [] }),
+    ).rejects.toThrow("No verified sources");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it("overlaps two scrapes, retains search order and tolerates a blocked page", async () => {
     const { t, id } = await prepared();
