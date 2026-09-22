@@ -1,4 +1,4 @@
-import { v, ConvexError } from "convex/values";
+import { v, ConvexError, type Infer } from "convex/values";
 import {
   query,
   mutation,
@@ -95,8 +95,9 @@ export const reserve = internalMutation({
         "End your active interview before starting another.",
       );
     // Resolve saved context server-side. Never trust a client-provided resume snapshot.
-    let config = {
-      ...args.config,
+    const { preparationBrief: _clientBrief, ...requestedConfig } = args.config;
+    let config: Infer<typeof configV> = {
+      ...requestedConfig,
       resumeText:
         args.config.resumeMode === "none" ? "" : (user.resumeText ?? ""),
     };
@@ -135,7 +136,8 @@ export const reserve = internalMutation({
               ? (o.resumeText ?? "")
               : (user.resumeText ?? ""),
         role: o.brief.role,
-        jobDescription: JSON.stringify(o.brief).slice(0, 15000),
+        jobDescription: o.brief.summary,
+        preparationBrief: o.brief,
       };
       question = config.startingQuestion || o.brief.questions[0];
     }

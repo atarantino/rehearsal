@@ -143,9 +143,7 @@ async function speak(page: Page) {
 async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await page.goto("/");
   if (mode === "mock")
-    await page
-      .getByRole("button", { name: /Mock interview Practice a full interview/ })
-      .click();
+    await page.getByRole("button", { name: /^Mock interview/ }).click();
   if (mode === "coached")
     await page
       .getByRole("button", {
@@ -155,7 +153,9 @@ async function start(page: Page, mode: "mock" | "coached" = "coached") {
   await page
     .getByLabel("What role are you preparing for?")
     .fill("Product manager");
-  await page.getByRole("button", { name: "Start practicing" }).click();
+  await page
+    .getByRole("button", { name: /^Start (practicing|mock interview)$/ })
+    .click();
   await expect(page.getByRole("status")).toHaveText("Connected");
 }
 
@@ -189,7 +189,7 @@ test("setup is usable at desktop and mobile widths", async ({ page }) => {
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(
-    page.getByRole("button", { name: "Start practicing" }),
+    page.getByRole("button", { name: /^Start (practicing|mock interview)$/ }),
   ).toBeVisible();
   expect(
     await page.evaluate(
@@ -390,7 +390,9 @@ test("microphone denial gives an actionable error without starting an interview"
   });
   await page.goto("/");
   await page.getByLabel("What role are you preparing for?").fill("Designer");
-  await page.getByRole("button", { name: "Start practicing" }).click();
+  await page
+    .getByRole("button", { name: /^Start (practicing|mock interview)$/ })
+    .click();
   await expect(page.getByRole("alert")).toContainText(
     "Microphone permission was denied",
   );
@@ -406,7 +408,9 @@ test("feedback failure retains transcript and retries without another voice sess
   await page.getByLabel("What role are you preparing for?").fill("Designer");
   await page.getByText("Add a job description or background").click();
   await page.getByLabel("Additional background").fill("TEST_FEEDBACK_FAILURE");
-  await page.getByRole("button", { name: "Start practicing" }).click();
+  await page
+    .getByRole("button", { name: /^Start (practicing|mock interview)$/ })
+    .click();
   await expect(page.getByRole("status")).toHaveText("Connected");
   await speak(page);
   await page.getByRole("button", { name: "End & review" }).click();
@@ -512,7 +516,9 @@ test("an unreachable STUN server does not discard usable gathered candidates", a
   await page.clock.install();
   await page.goto("/");
   await page.getByLabel("What role are you preparing for?").fill("Designer");
-  await page.getByRole("button", { name: "Start practicing" }).click();
+  await page
+    .getByRole("button", { name: /^Start (practicing|mock interview)$/ })
+    .click();
   await expect
     .poll(() => page.evaluate(() => !!(window as any).__peer?.localDescription))
     .toBe(true);
@@ -591,7 +597,9 @@ test("API rejection releases the microphone and returns to setup", async ({
   );
   await page.goto("/");
   await page.getByLabel("What role are you preparing for?").fill("Designer");
-  await page.getByRole("button", { name: "Start practicing" }).click();
+  await page
+    .getByRole("button", { name: /^Start (practicing|mock interview)$/ })
+    .click();
   await expect(page.getByRole("alert")).toContainText(
     "OpenAI rejected the API key",
   );
@@ -631,7 +639,9 @@ test("imports real PDF and DOCX text for review before using it in practice", as
     .fill("Reviewed resume: led a team of 12 people.");
   await page.getByRole("button", { name: "Save resume", exact: true }).click();
   await page.getByLabel("What role are you preparing for?").fill("Designer");
-  await page.getByRole("button", { name: "Start practicing" }).click();
+  await page
+    .getByRole("button", { name: /^Start (practicing|mock interview)$/ })
+    .click();
   await expect(page.getByRole("status")).toHaveText("Connected");
   const sessions = await page.request
     .get("/api/sessions")

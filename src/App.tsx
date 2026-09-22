@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   ArrowRight,
   AudioLines,
+  Briefcase,
   Check,
   ChevronDown,
   Clock3,
@@ -41,6 +42,45 @@ import { captions, clock } from "./transcript";
 // Mozilla bug 1034964 fixes ICE-lite nomination in Firefox 156.
 const firefoxVersion = Number(navigator.userAgent.match(/Firefox\/(\d+)/)?.[1]);
 const affectedFirefox = firefoxVersion > 0 && firefoxVersion < 156;
+// Sessions snapshot the structured brief; older records carried it as JSON in jobDescription.
+type BriefLabel = { company: string; role: string };
+export function briefOf(config: SessionConfig): BriefLabel | null {
+  const b = config.preparationBrief;
+  if (b?.company) return { company: b.company, role: b.role || config.role };
+  if (!config.opportunityId) return null;
+  try {
+    const p = JSON.parse(config.jobDescription);
+    return typeof p?.company === "string"
+      ? { company: p.company, role: p.role || config.role }
+      : null;
+  } catch {
+    return null;
+  }
+}
+function Practicing({
+  config,
+  onChange,
+}: {
+  config: SessionConfig;
+  onChange?: () => void;
+}) {
+  const b = briefOf(config);
+  if (!b) return null;
+  return (
+    <div className="practicing" role="note">
+      <Briefcase size={16} />
+      <span>
+        Practicing for <strong>{b.role}</strong> at <strong>{b.company}</strong>
+        , using your researched brief.
+      </span>
+      {onChange && (
+        <button type="button" className="text-button" onClick={onChange}>
+          Change
+        </button>
+      )}
+    </div>
+  );
+}
 const initial: SessionConfig = {
   mode: cloudEnabled ? "coached" : "mock",
   role: "",
@@ -297,8 +337,7 @@ export default function App() {
           </span>
           rehearsal<span className="brand-dot">.</span>
         </a>
-        <div className="workspace-label">YOUR PRACTICE SPACE</div>
-        <nav>
+        <nav aria-label="Workspace">
           <button
             className={
               view === "setup" || view === "live"
@@ -323,22 +362,12 @@ export default function App() {
             Session history<span className="count">{sessions.length}</span>
           </button>
         </nav>
-        <div className="sidebar-note">
-          <span className="small-wave">
-            <AudioLines size={26} />
-          </span>
-          <p>
-            A little practice.
-            <br />A clearer answer.
-          </p>
-          <span>Make room for your next step.</span>
-        </div>
         <div className="local-status">
-          <i /> Personal workspace{" "}
+          <ShieldCheck size={15} />
           <span>
             {cloudEnabled
-              ? "Saved privately in the cloud"
-              : "Saved on this Mac"}
+              ? "Private workspace. Audio is never recorded."
+              : "Saved on this device. Audio is never recorded."}
           </span>
         </div>
       </aside>
@@ -354,7 +383,7 @@ export default function App() {
           <div>
             <span className="local-pill">
               <span />
-              {cloudEnabled ? "PRIVATE" : "LOCAL"}
+              {cloudEnabled ? "Private" : "Local"}
             </span>
             <span className="avatar">You</span>
             {cloudEnabled && <SignOut disabled={locked} />}
@@ -424,19 +453,28 @@ export default function App() {
           {view === "setup" && (
             <>
               <div className="page-heading">
-                <p className="eyebrow">A LITTLE REHEARSAL GOES A LONG WAY</p>
-                <h1>
-                  Find the words.
-                  <br />
-                  <span>Make them yours.</span>
-                </h1>
+                <h1>Find the words before it counts.</h1>
                 <p>
-                  Practice the conversation before it counts.
-                  <br />A thoughtful interviewer. Room to think. Feedback you
-                  can use.
+                  {cloudEnabled
+                    ? "Prepare from a real posting or invitation, answer out loud, then read coaching that quotes what you actually said."
+                    : "Answer out loud, then read coaching that quotes what you actually said."}
                 </p>
               </div>
-              {cloudEnabled && <DefaultResume />}
+              <Practicing
+                config={config}
+                onChange={() =>
+                  setConfig({
+                    ...config,
+                    opportunityId: undefined,
+                    startingQuestion: undefined,
+                    preparationBrief: undefined,
+                    role: "",
+                    jobDescription: "",
+                    previousId: undefined,
+                    relation: undefined,
+                  })
+                }
+              />
               {cloudEnabled && (
                 <Preparation
                   onOpportunityChange={() =>
@@ -446,6 +484,7 @@ export default function App() {
                             ...current,
                             opportunityId: undefined,
                             startingQuestion: undefined,
+                            preparationBrief: undefined,
                             role: "",
                             jobDescription: "",
                             previousId: undefined,
@@ -457,23 +496,33 @@ export default function App() {
                   onSelect={(patch) => {
                     setConfig({ ...config, ...patch });
                     document
-                      .getElementById("role")
-                      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      .getElementById("practice-setup")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
                 />
               )}
-              <form onSubmit={(e) => void start(e)} className="setup-layout">
+              <form
+                id="practice-setup"
+                onSubmit={(e) => void start(e)}
+                className="setup-layout"
+              >
                 <section className="setup-panel">
                   <div className="section-title">
-                    <span className="step-number">1</span>
-                    <h2>Choose your practice</h2>
+                    <span className="step-number">{cloudEnabled ? 2 : 1}</span>
+                    <h2>Choose how to practice</h2>
                   </div>
                   <div className="mode-grid">
                     <button
                       type="button"
                       className={`mode-card ${config.mode === "mock" ? "chosen" : ""}`}
                       aria-pressed={config.mode === "mock"}
-                      onClick={() => setConfig({ ...config, mode: "mock" })}
+                      onClick={() =>
+                        setConfig({
+                          ...config,
+                          mode: "mock",
+                          startingQuestion: undefined,
+                        })
+                      }
                     >
                       <span className="mode-top">
                         <Headphones size={22} />
@@ -483,8 +532,8 @@ export default function App() {
                       </span>
                       <strong>Mock interview</strong>
                       <p>
-                        Practice a full interview across several questions. Get
-                        feedback at the end.
+                        Several questions in one sitting, like the real thing.
+                        Coaching at the end.
                       </p>
                       <span className="duration">
                         <Clock3 size={13} /> About 15 minutes
@@ -505,7 +554,8 @@ export default function App() {
                       <strong>Focused practice</strong>
                       <p>
                         Practice one interview question with up to two
-                        follow-ups. Get feedback, then try again.
+                        follow-ups. Read coaching, then try the same answer
+                        again.
                       </p>
                       <span className="duration">
                         <Clock3 size={13} /> Up to 5 minutes per try
@@ -513,12 +563,13 @@ export default function App() {
                     </button>
                   </div>
                   <div className="section-title context-title">
-                    <span className="step-number">2</span>
-                    <h2>Set the scene</h2>
+                    <span className="step-number">{cloudEnabled ? 3 : 2}</span>
+                    <h2>Tell the interviewer about the role</h2>
                   </div>
-                  {config.startingQuestion && (
+                  {config.startingQuestion && config.mode === "coached" && (
                     <p className="selected-question">
-                      <strong>Your question:</strong> {config.startingQuestion}
+                      <strong>Your question</strong>
+                      {config.startingQuestion}
                     </p>
                   )}
                   <label htmlFor="role">What role are you preparing for?</label>
@@ -532,8 +583,14 @@ export default function App() {
                       setConfig({
                         ...config,
                         role: e.target.value,
+                        jobDescription: config.opportunityId
+                          ? ""
+                          : config.jobDescription,
+                        previousId: undefined,
+                        relation: undefined,
                         opportunityId: undefined,
                         startingQuestion: undefined,
+                        preparationBrief: undefined,
                       })
                     }
                   />
@@ -604,7 +661,9 @@ export default function App() {
                     disabled={busy || !configured}
                   >
                     <Mic size={18} />
-                    Start practicing
+                    {config.mode === "mock"
+                      ? "Start mock interview"
+                      : "Start practicing"}
                     <ArrowRight size={18} />
                   </button>
                   <p className="privacy-line">
@@ -612,52 +671,8 @@ export default function App() {
                     Audio is processed by OpenAI, never recorded by this app.
                   </p>
                 </section>
-                <aside className="room-preview">
-                  <div className="preview-label">
-                    <span /> YOUR INTERVIEWER
-                  </div>
-                  <div className="voice-art">
-                    <Wave />
-                  </div>
-                  <h3>
-                    A conversation,
-                    <br />
-                    at your pace.
-                  </h3>
-                  <p>
-                    Take a breath. Think it through.
-                    <br />
-                    You don’t need a perfect first answer.
-                  </p>
-                  <div className="preview-divider" />
-                  <ul>
-                    <li>
-                      <Check size={16} />
-                      Questions shaped around your role
-                    </li>
-                    <li>
-                      <Check size={16} />
-                      Follow-ups that help you go deeper
-                    </li>
-                    <li>
-                      <Check size={16} />
-                      Two clear things to work on next
-                    </li>
-                  </ul>
-                  <div className="headphone-note">
-                    <Headphones size={17} />
-                    <span>
-                      A quiet spot and headphones
-                      <br />
-                      make a good starting point.
-                    </span>
-                  </div>
-                </aside>
               </form>
-              <footer className="setup-footer">
-                <span>BEHAVIORAL INTERVIEW PRACTICE</span>
-                <span>Built for practice. Space to improve.</span>
-              </footer>
+              {cloudEnabled && <DefaultResume />}
             </>
           )}
           {view === "live" && (
@@ -665,8 +680,8 @@ export default function App() {
               <div className="live-heading">
                 <span className="eyebrow">
                   {config.mode === "mock"
-                    ? "MOCK INTERVIEW"
-                    : "FOCUSED PRACTICE"}
+                    ? "Mock interview"
+                    : "Focused practice"}
                 </span>
                 <span className="timer">
                   <Clock3 size={15} />
@@ -674,12 +689,17 @@ export default function App() {
                   <small>/ {config.mode === "mock" ? "20:00" : "05:00"}</small>
                 </span>
               </div>
-              <h1>{config.role}</h1>
+              <h1>{briefOf(record?.config ?? config)?.role || config.role}</h1>
               <p className="muted">
-                {config.mode === "mock"
-                  ? "Let your experience lead the conversation."
-                  : "One answer at a time. Review when you’re ready."}
+                {briefOf(record?.config ?? config)
+                  ? `At ${briefOf(record?.config ?? config)!.company}. Questions draw on your researched brief.`
+                  : config.mode === "mock"
+                    ? "Let your experience lead the conversation."
+                    : "One answer at a time. Review when you’re ready."}
               </p>
+              {config.startingQuestion && config.mode === "coached" && (
+                <p className="live-question">{config.startingQuestion}</p>
+              )}
               <div
                 ref={stage}
                 className="conversation-stage"
@@ -811,25 +831,29 @@ export default function App() {
                 <div>
                   <p className="eyebrow">
                     {record.config.mode === "mock"
-                      ? "MOCK INTERVIEW"
-                      : "FOCUSED PRACTICE"}{" "}
-                    ·{" "}
+                      ? "Mock interview"
+                      : "Focused practice"}
+                    {record.config.relation === "retry" && (
+                      <span className="tag">Repeat attempt</span>
+                    )}
+                  </p>
+                  <h1>
+                    {record.config.mode === "coached" &&
+                    record.config.startingQuestion
+                      ? record.config.startingQuestion
+                      : briefOf(record.config)?.role || record.config.role}
+                  </h1>
+                  <p>
+                    {briefOf(record.config)
+                      ? `${briefOf(record.config)!.role} at ${briefOf(record.config)!.company}`
+                      : record.config.role}
+                    <span className="separator">·</span>
+                    {clock(record.seconds)}
+                    <span className="separator">·</span>
                     {new Date(record.createdAt).toLocaleDateString(undefined, {
                       month: "short",
                       day: "numeric",
                     })}
-                  </p>
-                  <h1>
-                    A little clearer,
-                    <br />
-                    <span>one answer at a time.</span>
-                  </h1>
-                  <p>
-                    {record.config.role} <span className="separator">·</span>{" "}
-                    {clock(record.seconds)}{" "}
-                    {record.config.relation === "retry" && (
-                      <span className="tag">Repeat attempt</span>
-                    )}
                   </p>
                 </div>
                 <button
@@ -881,12 +905,7 @@ export default function App() {
               ) : record.feedback ? (
                 <>
                   <section className="summary-card">
-                    <span className="eyebrow">
-                      YOUR TAKEAWAY ·{" "}
-                      {record.feedbackBackend === "codex"
-                        ? "CODEX SUBSCRIPTION"
-                        : "API"}
-                    </span>
+                    <span className="eyebrow">Your takeaway</span>
                     <h2>{record.feedback.summary}</h2>
                     {record.feedback.insufficientEvidence && (
                       <span className="tag">Limited evidence</span>
@@ -938,8 +957,8 @@ export default function App() {
                   {!!record.feedback.outline.length && (
                     <section className="outline-panel">
                       <div>
-                        <p className="eyebrow">FOR YOUR NEXT ATTEMPT</p>
-                        <h2>A clearer way through your answer.</h2>
+                        <p className="eyebrow">For your next attempt</p>
+                        <h2>A clearer way through your answer</h2>
                         {record.feedback.retryQuestion && (
                           <p className="focus-question">
                             {record.feedback.retryQuestion}
@@ -1008,6 +1027,9 @@ export default function App() {
                     Next question
                     <ArrowRight size={17} />
                   </button>
+                  <span className="review-actions-note">
+                    Retries keep the same question and compare both attempts.
+                  </span>
                   <button className="text-button" onClick={newPractice}>
                     New practice
                   </button>
@@ -1031,13 +1053,11 @@ export default function App() {
             <>
               <div className="history-heading">
                 <div>
-                  <p className="eyebrow">ONE CONVERSATION AT A TIME</p>
-                  <h1>
-                    Your practice,
-                    <br />
-                    <span>worth coming back to.</span>
-                  </h1>
-                  <p>Revisit the useful bits. Give an answer another try.</p>
+                  <h1>Your practice</h1>
+                  <p>
+                    Open a session to reread the coaching or try that answer
+                    again.
+                  </p>
                 </div>
                 <button className="primary" onClick={newPractice}>
                   <Plus size={17} />
@@ -1047,10 +1067,10 @@ export default function App() {
               {!sessions.length ? (
                 <div className="empty-history">
                   <History size={36} />
-                  <h2>Your first conversation starts here.</h2>
+                  <h2>No sessions yet</h2>
                   <p>
-                    Practice a question and your transcript and feedback will
-                    appear here.
+                    Practice a question and its transcript and coaching will be
+                    saved here.
                   </p>
                   <button className="secondary" onClick={newPractice}>
                     Go to practice room
@@ -1074,13 +1094,23 @@ export default function App() {
                           )}
                         </span>
                         <div>
-                          <h3>{s.config.role}</h3>
+                          <h3>
+                            {s.config.mode === "coached" &&
+                            s.config.startingQuestion
+                              ? s.config.startingQuestion
+                              : s.config.role}
+                          </h3>
                           <p>
                             {s.config.mode === "mock"
                               ? "Mock interview"
                               : "Focused practice"}
+                            {briefOf(s.config)
+                              ? ` for ${briefOf(s.config)!.role} at ${briefOf(s.config)!.company}`
+                              : s.config.startingQuestion
+                                ? ` for ${s.config.role}`
+                                : ""}
                             {s.config.relation === "retry"
-                              ? " · Repeat attempt"
+                              ? ", repeat attempt"
                               : ""}
                           </p>
                         </div>

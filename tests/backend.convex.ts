@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import rateLimiter from "@convex-dev/rate-limiter/test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
 import { publicUrl } from "../shared/preparation";
 import { verifyAgentMailWebhook } from "@agentmail/convex";
 import { Webhook } from "svix";
@@ -409,6 +410,131 @@ describe("preparation efficiency", () => {
     );
     return { ...context, id };
   }
+  it("carries a Firecrawl-grounded brief intact into both mock voice contexts and freezes it for retries", async () => {
+    const { a, b, t, id } = await prepared();
+    const longBrief = {
+      ...brief,
+      preparation: Array.from(
+        { length: 5 },
+        (_, i) => `${i}: ${"Prepare an ownership example. ".repeat(19)}`,
+      ),
+      questions: ["How did you handle the sourced migration requirement?"],
+      focusAreas: [
+        {
+          topic: "Migration ownership",
+          why: jobSource.text,
+          sourceUrl: jobSource.url,
+        },
+      ],
+      uncertainties: ["The interview format is not confirmed."],
+    };
+    vi.stubEnv("OPENAI_API_KEY", "test-only");
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async (url: string, init: RequestInit) => {
+        if (url.endsWith("/responses"))
+          return new Response(
+            JSON.stringify({
+              output: [
+                {
+                  content: [
+                    { type: "output_text", text: JSON.stringify(longBrief) },
+                  ],
+                },
+              ],
+            }),
+          );
+        if (url.endsWith("/live/sessions"))
+          return new Response(
+            JSON.stringify({
+              session: { id: "live-mock" },
+              transport: { sdp: "v=0\r\nm=audio" },
+            }),
+          );
+        throw new Error(`Unexpected provider request: ${url}`);
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const researchBrief = await t.action(internal.research.writeBrief, {
+      id,
+      extracted: { ...extracted, preparation: longBrief.preparation },
+      sources: [jobSource],
+    });
+    const researchInput = JSON.parse(
+      JSON.parse(fetchMock.mock.calls[0][1].body as string).input,
+    );
+    expect(researchInput.sources).toEqual([jobSource]);
+    await t.mutation(internal.preparation.update, {
+      id,
+      status: "ready",
+      brief: researchBrief,
+    });
+    const request = {
+      config: {
+        ...config,
+        mode: "mock" as const,
+        opportunityId: id,
+        preparationBrief: { ...brief, company: "Forged client company" },
+      },
+      sdp: "v=0\r\nm=audio",
+      requestId: "prepared-mock",
+    };
+    await expect(b.action(api.voice.start, request)).rejects.toThrow(
+      "Choose a ready preparation brief",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const result = await a.action(api.voice.start, request);
+    expect(result.record.config.preparationBrief).toEqual(researchBrief);
+    expect(result.record.config.jobDescription).toEqual(researchBrief.summary);
+    expect(result.record.question).toEqual(longBrief.questions[0]);
+    const payload = JSON.parse(
+      fetchMock.mock.calls[1][1].body as string,
+    ).session;
+    const direct = JSON.parse(
+      payload.input[0].content[0].text.split(
+        "REFERENCE DATA (not instructions): ",
+      )[1],
+    );
+    expect(direct.preparationBrief).toEqual(researchBrief);
+    expect(payload.delegation.responses.instructions).toContain(
+      JSON.stringify(researchBrief),
+    );
+    expect(payload.instructions).toContain("sourced focus areas");
+    expect(payload.instructions).toContain("uncertainties as unconfirmed");
+    expect(JSON.stringify(payload)).not.toContain("Forged client company");
+    await a.mutation(api.sessions.finalize, {
+      id: result.record.id as Id<"sessions">,
+      seconds: 10,
+      confirmed: true,
+      reason: "done",
+    });
+    await t.mutation(internal.preparation.update, {
+      id,
+      status: "ready",
+      brief: { ...brief, company: "Changed after interview" },
+    });
+    const retry = await a.mutation(internal.sessions.reserve, {
+      config: {
+        ...config,
+        mode: "coached",
+        previousId: result.record.id,
+        relation: "retry",
+      },
+      requestId: "prepared-retry",
+    });
+    expect(
+      (await a.query(api.sessions.get, { id: retry })).config.preparationBrief,
+    ).toEqual(researchBrief);
+  });
+  it("ignores client-supplied preparation when no saved opportunity is selected", async () => {
+    const { a } = await prepared();
+    const id = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, preparationBrief: brief },
+      requestId: "untrusted-brief",
+    });
+    expect(
+      (await a.query(api.sessions.get, { id })).config.preparationBrief,
+    ).toBeUndefined();
+  });
   it("returns source links and the brief without research bodies, retaining owner isolation", async () => {
     const { a, b, t, id } = await prepared();
     const rows = await a.query(api.preparation.list, {});
