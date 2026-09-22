@@ -54,3 +54,13 @@ text and responsive spacing, and cleared stale research when changing roles.
   the separate real provider check is documented above.
 - Production release target: `acoustic-cuttlefish-868`, explicitly authorized
   by the user after verification. Post-release checks are recorded below.
+
+Production release completed on 2026-09-22 UTC from PR #14 (merge commit
+`bebeedc27d961630073209aeba278e8154bfb959`). Convex schema validation passed
+with no index deletions. Static hosting published successfully to
+https://acoustic-cuttlefish-868.convex.site.
+
+Post-release checks passed for public passkey signup, the authenticated redesigned
+workspace, the expected production JavaScript asset, and layouts at 1440, 390
+and 320 pixels without horizontal overflow. Production voice was not exercised;
+the real Firecrawl and voice smoke above ran on development.
