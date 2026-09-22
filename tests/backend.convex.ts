@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { convexTest } from "convex-test";
+import { workflow } from "../convex/workflows";
 import rateLimiter from "@convex-dev/rate-limiter/test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
@@ -990,5 +991,229 @@ describe("saved resumes", () => {
     expect(
       (await a.query(api.sessions.get, { id: retry })).config.resumeText,
     ).toBe("Tailored experience");
+  });
+});
+
+describe("email prep attachments", () => {
+  async function emailPrep() {
+    const context = await setup();
+    const id = await context.t.run((ctx) =>
+      ctx.db.insert("opportunities", {
+        ownerId: context.alice,
+        requestId: "attachments",
+        kind: "email",
+        input: "Please prepare from the attached guide.",
+        status: "reading",
+        sources: [],
+        receivedAt: 1,
+        inboxId: "private@agentmail.to",
+        messageId: "<message/1>",
+        attachments: [
+          {
+            id: "guide/1",
+            filename: "study.txt",
+            contentType: "text/plain",
+            size: 100,
+            status: "pending",
+          },
+          {
+            id: "logo",
+            filename: "logo.png",
+            contentType: "image/png",
+            size: 10,
+            status: "pending",
+          },
+          {
+            id: "broken",
+            filename: "broken.pdf",
+            contentType: "application/pdf",
+            size: 20,
+            status: "pending",
+          },
+        ],
+      }),
+    );
+    return { ...context, id };
+  }
+  it("imports via provider-issued URLs, isolates failures, hides raw text in lists and retains imports on retry", async () => {
+    const { t, a, b, id } = await emailPrep();
+    vi.stubEnv("AGENTMAIL_API_KEY", "test-only");
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        calls.push(url);
+        if (url.startsWith("https://api.agentmail.to/")) {
+          expect(init.headers).toEqual({ Authorization: "Bearer test-only" });
+          return new Response(
+            JSON.stringify({
+              download_url: url.endsWith("broken")
+                ? "https://files.agentmail.to/broken"
+                : "https://files.agentmail.to/guide",
+            }),
+          );
+        }
+        expect(init.headers).toBeUndefined();
+        return new Response(
+          url.endsWith("broken")
+            ? "not a PDF"
+            : "Study guide: prepare a story about conflict resolution and customer tradeoffs.",
+        );
+      }),
+    );
+    await t.action(internal.attachments.importEmail, { id });
+    const o = await a.query(api.preparation.get, { id });
+    expect(o.attachments?.map((x) => x.status)).toEqual([
+      "imported",
+      "skipped",
+      "failed",
+    ]);
+    expect(o.attachments?.[0].text).toContain("conflict resolution");
+    expect(calls[0]).toContain("%3Cmessage%2F1%3E/attachments/guide%2F1");
+    expect(calls.some((x) => x.endsWith("logo"))).toBe(false);
+    expect(
+      (await a.query(api.preparation.list, {}))[0].attachments?.[0],
+    ).not.toHaveProperty("text");
+    await expect(b.query(api.preparation.get, { id })).rejects.toThrow(
+      "Preparation not found",
+    );
+    calls.length = 0;
+    await t.action(internal.attachments.importEmail, { id });
+    expect(calls.every((x) => x.endsWith("broken"))).toBe(true);
+  });
+  it("uses attachment-only sources in extraction and the brief that becomes voice context", async () => {
+    const { t, a, id } = await emailPrep();
+    const text =
+      "Prepare an example of resolving conflict during a product launch.";
+    await t.mutation(internal.preparation.update, {
+      id,
+      status: "reading",
+      attachments: [
+        {
+          id: "guide",
+          filename: "study.txt",
+          contentType: "text/plain",
+          size: 90,
+          status: "imported",
+          text,
+        },
+      ],
+    });
+    vi.stubEnv("OPENAI_API_KEY", "test-only");
+    const extracted = {
+      role: "Product designer",
+      company: "",
+      interviewDate: null,
+      preparation: [text],
+      jobUrl: null,
+    };
+    const brief = {
+      ...extracted,
+      summary: text,
+      focusAreas: [
+        { topic: "Conflict", why: text, sourceUrl: "#attachment-guide" },
+      ],
+      questions: ["Tell me about conflict during a launch."],
+      uncertainties: ["Company is unconfirmed."],
+    };
+    const inputs: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(init.body as string);
+        inputs.push(JSON.parse(body.input));
+        return new Response(
+          JSON.stringify({
+            output: [
+              {
+                content: [
+                  {
+                    type: "output_text",
+                    text: JSON.stringify(
+                      inputs.length === 1 ? extracted : brief,
+                    ),
+                  },
+                ],
+              },
+            ],
+          }),
+        );
+      }),
+    );
+    const details = await t.action(internal.research.extract, { id });
+    expect(inputs[0].attachments).toEqual([{ filename: "study.txt", text }]);
+    const sources = await t.action(internal.research.research, {
+      id,
+      extracted: details,
+    });
+    expect(sources).toEqual([
+      { url: "#attachment-guide", title: "study.txt", text },
+    ]);
+    const result = await t.action(internal.research.writeBrief, {
+      id,
+      extracted: details,
+      sources,
+    });
+    expect(inputs[1].sources).toEqual(sources);
+    await t.mutation(internal.preparation.update, {
+      id,
+      status: "ready",
+      brief: result,
+      sources,
+    });
+    const session = await a.mutation(internal.sessions.reserve, {
+      config: { ...config, mode: "mock", opportunityId: id },
+      requestId: "attachment-voice",
+    });
+    expect(
+      (await a.query(api.sessions.get, { id: session })).config.preparationBrief
+        ?.preparation,
+    ).toEqual([text]);
+  });
+});
+
+describe("attachment email intake", () => {
+  it("accepts attachment-only messages, bounds metadata and deduplicates webhook redelivery", async () => {
+    const { t, alice, a } = await setup();
+    vi.spyOn(workflow, "start").mockResolvedValue("workflow-test" as never);
+    await t.mutation(internal.email.save, {
+      ownerId: alice,
+      inboxId: "inbox@agentmail.to",
+      autoReply: false,
+    });
+    const message = {
+      inbox_id: "inbox@agentmail.to",
+      message_id: "message-one",
+      subject: "Study guides",
+      attachments: Array.from({ length: 12 }, (_, i) => ({
+        attachment_id: `file-${i}`,
+        filename: `guide-${i}.txt`,
+        size: 50,
+        content_type: "text/plain",
+      })),
+    };
+    for (const eventId of ["event-one", "event-one", "event-two"])
+      await t.mutation(internal.email.received, {
+        message,
+        thread: {},
+        eventId,
+      });
+    const rows = await a.query(api.preparation.list, {});
+    expect(rows).toHaveLength(1);
+    expect(rows[0].attachments).toHaveLength(10);
+    expect(rows[0].omittedAttachmentCount).toBe(2);
+    expect(rows[0].input).not.toContain("undefined");
+    expect(workflow.start).toHaveBeenCalledTimes(1);
+    await t.mutation(internal.email.received, {
+      message: { ...message, message_id: "spam", labels: ["spam"] },
+      thread: {},
+      eventId: "spam",
+    });
+    await t.mutation(internal.email.received, {
+      message: { ...message, inbox_id: "unknown@agentmail.to" },
+      thread: {},
+      eventId: "unknown",
+    });
+    expect(await a.query(api.preparation.list, {})).toHaveLength(1);
   });
 });

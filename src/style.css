@@ -2201,3 +2201,22 @@ h2 {
     transition-duration: 0.01ms !important;
   }
 }
+
+.attachment-list {
+  margin: 20px 0;
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.attachment-list ul {
+  padding-left: 20px;
+}
+.attachment-list li {
+  margin: 12px 0;
+  font-size: 14px;
+}
+.attachment-list p {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 13px;
+}

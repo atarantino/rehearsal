@@ -90,3 +90,18 @@ export const prepStatus = v.union(
   v.literal("ready"),
   v.literal("failed"),
 );
+
+export const attachment = v.object({
+  id: v.string(),
+  filename: v.string(),
+  contentType: v.string(),
+  size: v.number(),
+  status: v.union(
+    v.literal("pending"),
+    v.literal("imported"),
+    v.literal("skipped"),
+    v.literal("failed"),
+  ),
+  text: v.optional(v.string()),
+  note: v.optional(v.string()),
+});
