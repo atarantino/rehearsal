@@ -14,7 +14,7 @@ async function fakeVoice(page: Page) {
       gain.gain.value = 0;
       tone.connect(gain).connect(destination);
       tone.start();
-      return { stream: destination.stream, gain };
+      return { stream: destination.stream, gain, tone };
     };
     const user = makeVoice();
     const assistant = makeVoice();
@@ -22,6 +22,10 @@ async function fakeVoice(page: Page) {
     w.__voiceLevels = (you: number, interviewer: number) => {
       user.gain.gain.value = you;
       assistant.gain.gain.value = interviewer;
+    };
+    w.__voicePitch = (you: number, interviewer: number) => {
+      user.tone.frequency.value = you;
+      assistant.tone.frequency.value = interviewer;
     };
     w.__tracks = stream.getTracks();
     Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
@@ -207,12 +211,33 @@ test("wave follows both audio streams, respects mute and reduced motion", async 
   await fakeVoice(page);
   await start(page);
   const stage = page.locator(".conversation-stage");
+  const bars = stage.locator(".wave i");
+  const heights = () =>
+    bars.evaluateAll((nodes) =>
+      nodes.map(
+        (node) => new DOMMatrixReadOnly(getComputedStyle(node).transform).m22,
+      ),
+    );
+  const peak = async () => {
+    const values = await heights();
+    return values.indexOf(Math.max(...values));
+  };
+  const resting = async () =>
+    (await heights()).every((height) => height <= 0.075);
   await expect(stage).toHaveAttribute("data-speaker", "idle");
+  await expect.poll(resting).toBe(true);
   await page.evaluate(() => (window as any).__voiceLevels(0, 0.12));
   await expect(
     page.getByRole("heading", { name: "Interviewer speaking." }),
   ).toBeVisible();
   await expect(stage).toHaveAttribute("data-speaker", "assistant");
+  // Actual Web Audio tones must change the rendered shape, even at the same volume.
+  await expect.poll(peak).toBeLessThan(10);
+  await expect
+    .poll(async () => Math.max(...(await heights())))
+    .toBeGreaterThan(0.3);
+  await page.evaluate(() => (window as any).__voicePitch(440, 2400));
+  await expect.poll(peak).toBeGreaterThan(11);
   await page.screenshot({
     path: "test-results/voice-interviewer.png",
     fullPage: true,
@@ -222,12 +247,23 @@ test("wave follows both audio streams, respects mute and reduced motion", async 
     page.getByRole("heading", { name: "You’re speaking." }),
   ).toBeVisible();
   await expect(stage).toHaveAttribute("data-speaker", "user");
+  await expect.poll(peak).toBeLessThan(10);
+  await page.evaluate(() => (window as any).__voicePitch(2400, 2400));
+  await expect.poll(peak).toBeGreaterThan(11);
+  await page.evaluate(() => (window as any).__voiceLevels(0.015, 0));
+  await expect
+    .poll(async () => Math.max(...(await heights())))
+    .toBeLessThan(0.2);
+  await page.evaluate(() => (window as any).__voiceLevels(0.12, 0));
+  await expect
+    .poll(async () => Math.max(...(await heights())))
+    .toBeGreaterThan(0.3);
   await page.getByRole("button", { name: "Mute", exact: true }).click();
   await expect(stage).toHaveAttribute("data-speaker", "idle");
+  await expect.poll(resting).toBe(true);
   await page.evaluate(() => (window as any).__voiceLevels(0.12, 0.12));
   await expect(stage).toHaveAttribute("data-speaker", "assistant");
   await page.emulateMedia({ reducedMotion: "reduce" });
-  const bars = stage.locator(".wave i");
   const before = await bars.evaluateAll((nodes) =>
     nodes.map((n) => getComputedStyle(n).transform),
   );
@@ -238,6 +274,8 @@ test("wave follows both audio streams, respects mute and reduced motion", async 
       nodes.map((n) => getComputedStyle(n).transform),
     ),
   ).toEqual(before);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect.poll(resting).toBe(true);
   await page
     .getByRole("button", { name: "Review answer", exact: true })
     .click();

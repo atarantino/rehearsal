@@ -140,6 +140,7 @@ function Wave({ active = false }: { active?: boolean }) {
             {
               height: `${12 + v * 72}px`,
               "--bar-weight": v,
+              "--bar-energy": `var(--voice-band-${i}, 0)`,
               opacity: 0.4 + v * 0.6,
             } as CSSProperties
           }
@@ -254,6 +255,9 @@ export default function App() {
       record: setRecord,
       fragments: setFragments,
       level: (levels) => {
+        levels.bands.forEach((value, i) =>
+          stage.current?.style.setProperty(`--voice-band-${i}`, String(value)),
+        );
         stage.current?.style.setProperty("--voice-user", String(levels.user));
         stage.current?.style.setProperty(
           "--voice-assistant",
