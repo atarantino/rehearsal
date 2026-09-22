@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as attachments from "../attachments.js";
 import type * as auth from "../auth.js";
 import type * as email from "../email.js";
 import type * as http from "../http.js";
@@ -29,6 +30,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  attachments: typeof attachments;
   auth: typeof auth;
   email: typeof email;
   http: typeof http;

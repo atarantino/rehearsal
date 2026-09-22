@@ -7,6 +7,7 @@ import type { Id } from "./_generated/dataModel";
 import { requireUser } from "./users";
 import { limits } from "./limits";
 import { enqueue } from "./preparation";
+import { MAX_ATTACHMENTS } from "../shared/attachments";
 export const agentmail: AgentMail = new AgentMail(components.agentmail, {
   onMessageReceived: internal.email.received,
 });
@@ -95,6 +96,16 @@ const messageSchema = z.object({
   text: z.string().optional(),
   extracted_text: z.string().optional(),
   labels: z.array(z.string()).optional(),
+  attachments: z
+    .array(
+      z.object({
+        attachment_id: z.string().min(1).max(300),
+        filename: z.string().optional(),
+        content_type: z.string().optional(),
+        size: z.number().nonnegative().optional(),
+      }),
+    )
+    .optional(),
 });
 export const received = internalMutation({
   args: { message: v.any(), thread: v.any(), eventId: v.string() },
@@ -120,18 +131,29 @@ export const received = internalMutation({
     )
       return null;
     const text = message.text || message.extracted_text;
-    if (!text) return null;
+    if (!text && !message.attachments?.length) return null;
     await enqueue(ctx, {
       ownerId: inbox.ownerId,
       requestId: `mail:${message.message_id}`,
       kind: "email",
       input:
-        `Subject: ${message.subject ?? "Interview invitation"}\n\n${text}`.slice(
+        `Subject: ${message.subject ?? "Interview invitation"}\n\n${text ?? ""}`.slice(
           0,
           18000,
         ),
       inboxId: message.inbox_id,
       messageId: message.message_id,
+      attachments: message.attachments?.slice(0, MAX_ATTACHMENTS).map((a) => ({
+        id: a.attachment_id,
+        filename: (a.filename || "Unnamed attachment").slice(0, 300),
+        contentType: (a.content_type || "").slice(0, 200),
+        size: a.size ?? 0,
+        status: "pending" as const,
+      })),
+      omittedAttachmentCount: Math.max(
+        0,
+        (message.attachments?.length ?? 0) - MAX_ATTACHMENTS,
+      ),
     });
     await ctx.db.insert("mailEvents", { eventId: args.eventId });
     return null;

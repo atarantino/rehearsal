@@ -7,6 +7,7 @@ import {
   source,
   prepStatus,
   resumeMode,
+  attachment,
 } from "./validators";
 export default defineSchema({
   users: defineTable({
@@ -49,6 +50,8 @@ export default defineSchema({
     inboxId: v.optional(v.string()),
     messageId: v.optional(v.string()),
     replyId: v.optional(v.string()),
+    attachments: v.optional(v.array(attachment)),
+    omittedAttachmentCount: v.optional(v.number()),
     receivedAt: v.number(),
   })
     .index("by_ownerId", ["ownerId"])

@@ -1,4 +1,4 @@
-import { v, ConvexError } from "convex/values";
+import { v, ConvexError, type Infer } from "convex/values";
 import {
   query,
   mutation,
@@ -9,7 +9,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { prepStatus, source, brief } from "./validators";
+import { prepStatus, source, brief, attachment } from "./validators";
 import { requireUser } from "./users";
 import { publicUrl } from "../shared/preparation";
 import { limits } from "./limits";
@@ -23,6 +23,8 @@ export async function enqueue(
     kind: "url" | "email";
     inboxId?: string;
     messageId?: string;
+    attachments?: Infer<typeof attachment>[];
+    omittedAttachmentCount?: number;
   },
 ) {
   const old = await ctx.db
@@ -66,9 +68,10 @@ export const list = query({
   returns: v.array(
     schema
       .doc("opportunities")
-      .omit("sources")
+      .omit("sources", "attachments")
       .extend({
         sources: v.array(source.pick("url", "title")),
+        attachments: v.optional(v.array(attachment.omit("text"))),
       }),
   ),
   handler: async (ctx) => {
@@ -80,6 +83,7 @@ export const list = query({
       .take(20);
     return opportunities.map((o) => ({
       ...o,
+      attachments: o.attachments?.map(({ text: _text, ...a }) => a),
       sources: o.sources.map(({ url, title }) => ({ url, title })),
     }));
   },
@@ -103,8 +107,16 @@ export const retry = mutation({
     const o = await ctx.db.get(id);
     if (!o || o.ownerId !== user._id)
       throw new ConvexError("Preparation not found.");
-    if (o.status !== "failed")
-      throw new ConvexError("Only failed preparation can be retried.");
+    if (
+      o.status !== "failed" &&
+      !(
+        o.status === "ready" &&
+        o.attachments?.some((a) => a.status === "failed")
+      )
+    )
+      throw new ConvexError(
+        "Only failed preparation or attachment imports can be retried.",
+      );
     await limits.limit(ctx, "research", { key: user._id, throws: true });
     await limits.limit(ctx, "globalResearch", { throws: true });
     const workflowId = await workflow.start(ctx, internal.workflows.prepare, {
@@ -130,6 +142,7 @@ export const update = internalMutation({
     sources: v.optional(v.array(source)),
     brief: v.optional(brief),
     error: v.optional(v.string()),
+    attachments: v.optional(v.array(attachment)),
   },
   returns: v.null(),
   handler: async (ctx, { id, ...patch }) => {

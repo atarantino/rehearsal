@@ -17,6 +17,7 @@ export const prepare = workflow.define({
         id,
         status: "reading",
       });
+      await step.runAction(internal.attachments.importEmail, { id });
       const extracted = await step.runAction(internal.research.extract, { id });
       await step.runMutation(internal.preparation.update, {
         id,

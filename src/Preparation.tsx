@@ -121,7 +121,9 @@ export function Preparation({
           <>
             <p>
               Forward the invitation to your private preparation inbox. Email
-              text is processed; attachments are not imported.
+              text and PDF, DOCX, and plain-text attachments are included in
+              your preparation. Up to 10 files, 5 MB each (15 MB total); PDFs up
+              to 30 pages. Scanned PDFs and images need a text-based copy.
             </p>
             <div className="inbox-address">
               <code>{inbox.address}</code>
@@ -208,6 +210,47 @@ export function Preparation({
           {current && (
             <OpportunityResume key={current._id} opportunityId={current._id} />
           )}
+          {!!current?.attachments?.length && (
+            <section className="attachment-list" aria-label="Email attachments">
+              <h4>Prep materials</h4>
+              <ul>
+                {current.attachments.map((a) => (
+                  <li key={a.id} id={`attachment-${encodeURIComponent(a.id)}`}>
+                    <strong>{a.filename}</strong>
+                    {" — "}
+                    <span>
+                      {a.status === "pending"
+                        ? "Waiting to import"
+                        : a.status === "imported"
+                          ? "Imported"
+                          : a.status === "skipped"
+                            ? "Not imported"
+                            : "Could not import"}
+                    </span>
+                    {a.note && <p>{a.note}</p>}
+                  </li>
+                ))}
+              </ul>
+              {!!current.omittedAttachmentCount && (
+                <p>
+                  {current.omittedAttachmentCount} additional files were not
+                  imported (10-file limit).
+                </p>
+              )}
+              {current.status === "ready" &&
+                current.attachments.some((a) => a.status === "failed") && (
+                  <button
+                    onClick={() =>
+                      void retry({ id: current._id }).catch((e) =>
+                        setError(e.message),
+                      )
+                    }
+                  >
+                    Retry attachment import
+                  </button>
+                )}
+            </section>
+          )}
           {current && !["ready", "failed"].includes(current.status) && (
             <div className="prep-progress" role="status">
               <ol className="prep-stages">
@@ -258,7 +301,7 @@ export function Preparation({
                 {b.company}
                 {b.interviewDate ? `, interview ${b.interviewDate}` : ""}
                 {current.sources.length
-                  ? ` — from ${current.sources.length} public ${current.sources.length === 1 ? "source" : "sources"}`
+                  ? ` — from ${current.sources.length} ${current.sources.length === 1 ? "source" : "sources"}`
                   : ""}
               </p>
               <p className="brief-summary">{b.summary}</p>
@@ -306,7 +349,13 @@ export function Preparation({
                       <dt>{f.topic}</dt>
                       <dd>
                         {f.why}{" "}
-                        <a href={f.sourceUrl} target="_blank" rel="noreferrer">
+                        <a
+                          href={f.sourceUrl}
+                          target={
+                            f.sourceUrl.startsWith("#") ? undefined : "_blank"
+                          }
+                          rel="noreferrer"
+                        >
                           Source <ExternalLink size={12} />
                         </a>
                       </dd>
@@ -351,7 +400,11 @@ export function Preparation({
                 <ul>
                   {current.sources.map((s) => (
                     <li key={s.url}>
-                      <a href={s.url} target="_blank" rel="noreferrer">
+                      <a
+                        href={s.url}
+                        target={s.url.startsWith("#") ? undefined : "_blank"}
+                        rel="noreferrer"
+                      >
                         {s.title}
                       </a>
                     </li>
