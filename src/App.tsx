@@ -14,6 +14,7 @@ import {
   Check,
   ChevronDown,
   Clock3,
+  CreditCard,
   Headphones,
   History,
   Mic,
@@ -39,6 +40,7 @@ import { api as backend } from "../convex/_generated/api";
 import { Preparation } from "./Preparation";
 import { DefaultResume, PracticeResume, LocalResume } from "./Resume";
 import { SignOut } from "./Auth";
+import { Billing } from "./Billing";
 import { LiveSession } from "./live";
 import { captions, clock } from "./transcript";
 // Mozilla bug 1034964 fixes ICE-lite nomination in Firefox 156.
@@ -151,8 +153,12 @@ function Wave({ active = false }: { active?: boolean }) {
   );
 }
 export default function App() {
-  const [view, setView] = useState<"setup" | "live" | "review" | "history">(
-    "setup",
+  const [view, setView] = useState<
+    "setup" | "live" | "review" | "history" | "billing"
+  >(
+    cloudEnabled && new URLSearchParams(window.location.search).has("billing")
+      ? "billing"
+      : "setup",
   );
   const [config, setConfig] = useState<SessionConfig>(initial);
   const prefillPreparation = useCallback((patch: Partial<SessionConfig>) => {
@@ -393,6 +399,19 @@ export default function App() {
             <History size={18} />
             Session history<span className="count">{sessions.length}</span>
           </button>
+          {cloudEnabled && (
+            <button
+              className={view === "billing" ? "nav-item selected" : "nav-item"}
+              disabled={locked}
+              onClick={() => {
+                setView("billing");
+                setError("");
+              }}
+            >
+              <CreditCard size={18} />
+              Plans & usage
+            </button>
+          )}
         </nav>
         <div className="local-status">
           <ShieldCheck size={15} />
@@ -406,11 +425,13 @@ export default function App() {
       <main>
         <header className="topbar">
           <span>
-            {view === "history"
-              ? "Your sessions"
-              : view === "review"
-                ? "Session review"
-                : "Practice room"}
+            {view === "billing"
+              ? "Plans & usage"
+              : view === "history"
+                ? "Your sessions"
+                : view === "review"
+                  ? "Session review"
+                  : "Practice room"}
           </span>
           <div>
             <span className="local-pill">
@@ -422,6 +443,7 @@ export default function App() {
           </div>
         </header>
         <div className="content">
+          {cloudEnabled && view === "billing" && <Billing />}
           {error && (
             <div className="error-banner" role="alert">
               <div>
@@ -595,6 +617,20 @@ export default function App() {
                       </span>
                     </button>
                   </div>
+                  {cloudEnabled && (
+                    <p className="practice-allowance-note muted">
+                      Free includes focused practice. Each focused practice
+                      needs 5 available voice minutes; a mock interview needs
+                      20. Unused reserved time returns when practice closes.{" "}
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => setView("billing")}
+                      >
+                        View plans & usage
+                      </button>
+                    </p>
+                  )}
                   <div className="section-title context-title">
                     <span className="step-number">{cloudEnabled ? 3 : 2}</span>
                     <h2>Tell the interviewer about the role</h2>

@@ -1,8 +1,11 @@
+import { env } from "./_generated/server";
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import { registerStaticRoutes } from "@convex-dev/static-hosting";
 import { agentmail } from "./email";
+import { registerRoutes } from "@convex-dev/stripe";
+
 const http = httpRouter();
 http.route({
   path: "/agentmail/webhook",
@@ -41,6 +44,29 @@ http.route({
       bounded,
     );
   }),
+});
+registerRoutes(http, components.stripe, {
+  webhookPath: "/stripe/webhook",
+  apiVersion: "2026-08-26.dahlia",
+  onEvent: async (ctx, event) => {
+    const live = /^(sk|rk)_live_/.test(env.STRIPE_SECRET_KEY ?? "");
+    if (event.livemode !== live) throw new Error("Stripe event mode mismatch.");
+    const object = event.data.object;
+    const customer = "customer" in object ? object.customer : undefined;
+    const customerId =
+      typeof customer === "string"
+        ? customer
+        : customer && "id" in customer
+          ? customer.id
+          : event.type.startsWith("customer.") &&
+              !event.type.startsWith("customer.subscription.")
+            ? "id" in object
+              ? object.id
+              : undefined
+            : undefined;
+    if (customerId)
+      await ctx.runAction(internal.billing.reconcile, { customerId });
+  },
 });
 registerStaticRoutes(http, components.staticHosting);
 export default http;
