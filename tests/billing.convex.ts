@@ -280,6 +280,30 @@ describe("billing synchronization and checkout recovery", () => {
     });
     expect(recovered.token).toBe(admitted.value.token);
   });
+  it("preserves a recovery token after an earlier saved checkout expires", async () => {
+    const { t, a, alice } = await setup();
+    await link(t, alice);
+    const old = await a.mutation(internal.billing.claimCheckout, {
+      plan: "plus",
+    });
+    await a.mutation(internal.billing.saveCheckout, {
+      token: old.token,
+      sessionId: "cs_expired",
+      url: "https://checkout.stripe.com/expired",
+      expiresAt: now + 1000,
+    });
+    vi.setSystemTime(now + 2000);
+    const fresh = await a.mutation(internal.billing.claimCheckout, {
+      plan: "pro",
+    });
+    expect(fresh.token).not.toBe(old.token);
+    vi.setSystemTime(now + 63000);
+    const recovered = await a.mutation(internal.billing.claimCheckout, {
+      plan: "pro",
+    });
+    expect(recovered.token).toBe(fresh.token);
+    expect(recovered.plan).toBe("pro");
+  });
   it("uses a fresh checkout token when resubscribing after cancellation", async () => {
     const { t, a, alice } = await setup();
     const account = await link(t, alice);

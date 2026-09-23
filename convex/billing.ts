@@ -334,6 +334,10 @@ export const claimCheckout = internalMutation({
       checkoutToken: token,
       checkoutPlan,
       checkoutLeaseUntil: Date.now() + 60000,
+      // Retired sessions must not make an unsaved retry look like a fresh claim.
+      checkoutSessionId: undefined,
+      checkoutUrl: undefined,
+      checkoutExpiresAt: undefined,
     });
     return { token, url: null, sessionId: null, plan: checkoutPlan };
   },
