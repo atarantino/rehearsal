@@ -26,6 +26,7 @@ import {
 } from "../shared/types";
 import { requireUser } from "./users";
 import { limits } from "./limits";
+import { reserveVoice, settleVoice, hasFeedbackUsage } from "./usage";
 export async function owned(ctx: QueryCtx | MutationCtx, id: Id<"sessions">) {
   const user = await requireUser(ctx);
   const s = await ctx.db.get(id);
@@ -175,6 +176,7 @@ export const reserve = internalMutation({
       },
     });
     const s = await ctx.db.get(id);
+    await reserveVoice(ctx, s!);
     await ctx.db.patch(id, { record: { ...s!.record, id } });
     await ctx.scheduler.runAfter(
       (maxSeconds(config.mode) + 30) * 1000,
@@ -204,12 +206,14 @@ export const activate = internalMutation({
   handler: async (ctx, { id, liveId }) => {
     const s = await ctx.db.get(id);
     if (!s) return false;
-    if (s.record.endedAt) {
+    if (s.record.endedAt || s.expiresAt <= Date.now()) {
       await ctx.db.patch(id, { liveId });
       return false;
     }
+    if (s.activatedAt !== undefined) return s.liveId === liveId;
     await ctx.db.patch(id, {
       liveId,
+      activatedAt: Date.now(),
       record: { ...s.record, status: "active" },
     });
     return true;
@@ -267,11 +271,9 @@ export const finalize = mutation({
     )
       throw new ConvexError("Invalid duration.");
     await ctx.scheduler.runAfter(0, internal.voice.expire, { id: s._id });
+    const now = Date.now();
+    const seconds = await settleVoice(ctx, s, now);
     if (!s.record.endedAt) {
-      const seconds = Math.min(
-        maxSeconds(s.record.config.mode),
-        (Date.now() - Date.parse(s.record.createdAt)) / 1000,
-      );
       await ctx.db.patch(s._id, {
         record: {
           ...s.record,
@@ -279,8 +281,8 @@ export const finalize = mutation({
             args.confirmed && args.reason !== "connection_lost"
               ? "completed"
               : "partial",
-          endedAt: new Date().toISOString(),
-          seconds: args.seconds ?? seconds,
+          endedAt: new Date(now).toISOString(),
+          seconds,
           usageConfirmed: false,
           closeReason: args.reason.slice(0, 100),
         },
@@ -306,16 +308,16 @@ export const markClosed = internalMutation({
   returns: v.null(),
   handler: async (ctx, { id, reason }) => {
     const s = await ctx.db.get(id);
-    if (s && !s.record.endedAt)
+    if (!s) return null;
+    const now = Date.now();
+    const seconds = await settleVoice(ctx, s, now);
+    if (!s.record.endedAt)
       await ctx.db.patch(id, {
         record: {
           ...s.record,
           status: "partial",
-          endedAt: new Date().toISOString(),
-          seconds: Math.min(
-            maxSeconds(s.record.config.mode),
-            (Date.now() - Date.parse(s.record.createdAt)) / 1000,
-          ),
+          endedAt: new Date(now).toISOString(),
+          seconds,
           closeReason: reason,
         },
       });
@@ -330,16 +332,25 @@ export const claimFeedback = internalMutation({
     if (s.record.feedback) return null;
     if (!s.record.endedAt)
       throw new ConvexError("End the interview before requesting feedback.");
+    if (!(await hasFeedbackUsage(ctx, s)))
+      throw new ConvexError(
+        "Feedback is available only after a connected interview has recorded voice usage. Start a new interview to try again.",
+      );
     if (
       s.feedbackState === "running" &&
       (s.feedbackStartedAt ?? 0) > Date.now() - 300000
     )
       throw new ConvexError("Feedback is already being prepared.");
+    if ((s.feedbackAttempts ?? 0) >= 3)
+      throw new ConvexError(
+        "Feedback could not be generated after three attempts. Your transcript is saved; start a new interview to try again.",
+      );
     await limits.limit(ctx, "feedback", { key: s.ownerId, throws: true });
-    const claim = Date.now();
+    const claim = Math.max(Date.now(), (s.feedbackStartedAt ?? 0) + 1);
     await ctx.db.patch(id, {
       feedbackState: "running",
       feedbackStartedAt: claim,
+      feedbackAttempts: (s.feedbackAttempts ?? 0) + 1,
     });
     return claim;
   },
@@ -378,6 +389,7 @@ export const remove = mutation({
     const s = await owned(ctx, id);
     if (!s.record.endedAt)
       throw new ConvexError("End this session before deleting it.");
+    await settleVoice(ctx, s, Date.now());
     if (s.liveId)
       await ctx.scheduler.runAfter(0, internal.voice.hangupDeleted, {
         liveId: s.liveId,
