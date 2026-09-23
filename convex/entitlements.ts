@@ -1,3 +1,4 @@
+import { env } from "./_generated/server";
 import { ConvexError } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
@@ -25,18 +26,18 @@ export function validateNow(now: number) {
     throw new ConvexError("Invalid time.");
 }
 export function planForPrice(priceId?: string): Plan {
-  if (priceId && priceId === process.env.STRIPE_PLUS_PRICE_ID) return "plus";
-  if (priceId && priceId === process.env.STRIPE_PRO_PRICE_ID) return "pro";
+  if (priceId && priceId === env.STRIPE_PLUS_PRICE_ID) return "plus";
+  if (priceId && priceId === env.STRIPE_PRO_PRICE_ID) return "pro";
   return "free";
 }
 export function billingConfigured() {
   return Boolean(
-    process.env.SITE_URL &&
-    process.env.STRIPE_SECRET_KEY &&
-    process.env.STRIPE_WEBHOOK_SECRET &&
-    process.env.STRIPE_PLUS_PRICE_ID &&
-    process.env.STRIPE_PRO_PRICE_ID &&
-    process.env.STRIPE_PORTAL_CONFIGURATION_ID,
+    env.SITE_URL &&
+    env.STRIPE_SECRET_KEY &&
+    env.STRIPE_WEBHOOK_SECRET &&
+    env.STRIPE_PLUS_PRICE_ID &&
+    env.STRIPE_PRO_PRICE_ID &&
+    env.STRIPE_PORTAL_CONFIGURATION_ID,
   );
 }
 export async function getEntitlement(

@@ -1,3 +1,4 @@
+import { env } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import {
   query,
@@ -26,13 +27,13 @@ const terminal = new Set(["none", "canceled", "incomplete_expired"]);
 function stripe() {
   if (!billingConfigured())
     throw new ConvexError("Subscriptions are not configured yet.");
-  return new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  return new Stripe(env.STRIPE_SECRET_KEY!, {
     apiVersion: "2026-08-26.dahlia",
     maxNetworkRetries: 2,
   });
 }
 function site() {
-  const url = new URL(process.env.SITE_URL!);
+  const url = new URL(env.SITE_URL!);
   if (
     url.protocol !== "https:" &&
     url.hostname !== "localhost" &&
@@ -42,7 +43,7 @@ function site() {
   return url.origin;
 }
 function namespace() {
-  return `rehearsal:${process.env.CONVEX_CLOUD_URL}`;
+  return `rehearsal:${env.CONVEX_CLOUD_URL}`;
 }
 
 export const summary = query({
@@ -68,8 +69,8 @@ export const summary = query({
       status: account?.status ?? "none",
       configured: billingConfigured(),
       testMode:
-        !process.env.STRIPE_SECRET_KEY?.startsWith("sk_live_") &&
-        !process.env.STRIPE_SECRET_KEY?.startsWith("rk_live_"),
+        !env.STRIPE_SECRET_KEY?.startsWith("sk_live_") &&
+        !env.STRIPE_SECRET_KEY?.startsWith("rk_live_"),
       cancelAtPeriodEnd: account?.cancelAtPeriodEnd ?? false,
       periodEnd: account?.periodEnd ?? null,
     };
@@ -364,7 +365,7 @@ export const saveCheckout = internalMutation({
 async function portalUrl(customerId: string) {
   const session = await stripe().billingPortal.sessions.create({
     customer: customerId,
-    configuration: process.env.STRIPE_PORTAL_CONFIGURATION_ID!,
+    configuration: env.STRIPE_PORTAL_CONFIGURATION_ID!,
     return_url: `${site()}/?billing=return`,
   });
   return { url: session.url };
@@ -394,9 +395,7 @@ export const checkout = action({
         "Please retry your previous plan while its checkout is being recovered.",
       );
     const priceId =
-      plan === "plus"
-        ? process.env.STRIPE_PLUS_PRICE_ID!
-        : process.env.STRIPE_PRO_PRICE_ID!;
+      plan === "plus" ? env.STRIPE_PLUS_PRICE_ID! : env.STRIPE_PRO_PRICE_ID!;
     const session = await stripe().checkout.sessions.create(
       {
         customer: customerId,
