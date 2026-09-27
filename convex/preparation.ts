@@ -13,6 +13,7 @@ import { prepStatus, source, brief, attachment } from "./validators";
 import { requireUser } from "./users";
 import { publicUrl } from "../shared/preparation";
 import { limits } from "./limits";
+import { consumePreparation } from "./usage";
 import { workflow } from "./workflows";
 import type { WorkflowId } from "@convex-dev/workflow";
 export async function enqueue(
@@ -35,6 +36,7 @@ export async function enqueue(
     )
     .unique();
   if (old) return old._id;
+  await consumePreparation(ctx, args.ownerId);
   await limits.limit(ctx, "research", { key: args.ownerId, throws: true });
   await limits.limit(ctx, "globalResearch", { throws: true });
   const id = await ctx.db.insert("opportunities", {
@@ -157,6 +159,7 @@ export const retry = mutation({
       throw new ConvexError(
         "Only failed preparation or attachment imports can be retried.",
       );
+    await consumePreparation(ctx, user._id);
     await limits.limit(ctx, "research", { key: user._id, throws: true });
     await limits.limit(ctx, "globalResearch", { throws: true });
     const workflowId = await workflow.start(ctx, internal.workflows.prepare, {

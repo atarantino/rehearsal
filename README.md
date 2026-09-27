@@ -10,7 +10,7 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 
 ## How it works
 
-- **AgentMail** creates a private preparation inbox. Signed webhooks route invitation text to its owner. An optional reply links back to the authenticated workspace.
+- **AgentMail** uses a shared forwarding inbox with private account routing markers. Signed webhooks link invitation records to their owner; existing dedicated inboxes keep working. An optional reply links back to the authenticated workspace.
 - **Firecrawl** reads job postings and public company pages. Briefs include sources, tailored questions, and details that need confirming.
 - **OpenAI** conducts spoken interviews with `gpt-live-1`, using `gpt-5.6-terra` for delegated reasoning and written coaching.
 - **Convex** stores accounts, opportunities, transcripts, feedback, and retry relationships. Durable workflows show progress live; scheduled functions close abandoned voice sessions; rate limits bound paid work.
@@ -26,6 +26,14 @@ The interviewer offers candidate Q&A with â€œWhat questions do you have for me?â
 For a prepared opportunity, **Next question** advances through the current brief's questions before the generic fallback. A retry keeps its selected question and saved preparation context.
 
 See [realism checks](docs/interview-realism.md) for automated coverage and the opt-in synthetic voice check.
+
+## Plans and email routing
+
+Free includes 10 voice minutes and 3 preparations per UTC month. Plus is $19/month for 60 minutes and 15 preparations; Pro is $39/month for 150 minutes and 40 preparations. Paid periods follow Stripe billing. There are no automatic overage charges. Backend reservations and retained usage enforce allowances, and the Stripe portal manages payment details and subscriptions. Billing shows an explicit test-mode notice when using test credentials.
+
+Email setup allocates an account-linked database record in a shared AgentMail inbox. Forward invitations with the displayed private subject marker; rotate it if disclosed. New accounts no longer consume a physical inbox each. Over-quota invitations stay private and can be retried later.
+
+See [subscription setup and validation](docs/subscriptions.md), [OpenAI cost estimates](docs/billing-costs.md), and [email routing](docs/email-routing.md).
 
 ## Resumes
 
@@ -89,7 +97,7 @@ Credentials stay on the backend. Audio goes through OpenAI WebRTC; Rehearsal doe
 
 Email text is processed; attachments are not imported. Firecrawl receives public URLs and search terms. Enabling replies sends an authenticated workspace link in the original thread. The app requests `store: false` for OpenAI calls; this is not a claim about provider-wide retention.
 
-Passkeys use Convex Auth v2 alpha. Account recovery is not implemented, so keep access to your passkey. The current AgentMail account has a small inbox allowance; URL preparation remains available when inbox capacity is full. Quotas allow ten preparations and ten voice starts per account per day, with shared ceilings of one hundred each.
+Passkeys use Convex Auth v2 alpha. Account recovery is not implemented, so keep access to your passkey. New users share one configured AgentMail inbox, with independently owned routing records. Monthly plan allowances apply alongside daily abuse limits of ten preparations and ten voice starts per account, shared ceilings of one hundred each, and a separate Free-tier voice safety budget.
 
 Automated checks cover ownership, transcript deduplication, feedback leases, cleanup, webhook signatures, and browser practice/retry flows. Real-service checks use synthetic audio and invitations; a human microphone listening check remains part of final demo rehearsal.
 

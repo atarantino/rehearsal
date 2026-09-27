@@ -20,6 +20,20 @@ async function setup() {
       ctx.db.insert("users", { username: "bob" }),
     ]),
   );
+  vi.stubEnv("STRIPE_PLUS_PRICE_ID", "price_test_plus");
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    for (const ownerId of [alice, bob])
+      await ctx.db.insert("billingAccounts", {
+        ownerId,
+        priceId: "price_test_plus",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        syncRevision: 0,
+        periodStart: now - 1000,
+        periodEnd: now + 31 * 86400000,
+      });
+  });
   return {
     t,
     alice,
@@ -49,11 +63,17 @@ afterEach(() => {
 });
 describe("voice review recovery", () => {
   async function endedSession(mode: "coached" | "mock" = "coached") {
+    vi.useFakeTimers();
     const context = await setup();
     const id = await context.a.mutation(internal.sessions.reserve, {
       config: { ...config, mode },
       requestId: "review",
     });
+    await context.a.mutation(internal.sessions.activate, {
+      id,
+      liveId: "live-review",
+    });
+    vi.setSystemTime(Date.now() + 10000);
     await context.a.mutation(api.sessions.append, {
       id,
       fragments: [fragment],
@@ -241,6 +261,7 @@ describe("private practice", () => {
     expect(await b.query(api.sessions.list, {})).toEqual([]);
   });
   it("deduplicates transcript events and freezes them during review", async () => {
+    vi.useFakeTimers();
     const { a, t } = await setup();
     const id = await a.mutation(internal.sessions.reserve, {
       config,
@@ -252,6 +273,8 @@ describe("private practice", () => {
     });
     await a.mutation(api.sessions.append, { id, fragments: [fragment] });
     expect((await a.query(api.sessions.get, { id })).fragments).toHaveLength(1);
+    await a.mutation(internal.sessions.activate, { id, liveId: "live-review" });
+    vi.setSystemTime(Date.now() + 10000);
     await a.mutation(api.sessions.finalize, {
       id,
       confirmed: true,
@@ -335,11 +358,14 @@ describe("private practice", () => {
     );
   });
   it("ignores an obsolete feedback worker", async () => {
+    vi.useFakeTimers();
     const { a } = await setup();
     const id = await a.mutation(internal.sessions.reserve, {
       config,
       requestId: "review",
     });
+    await a.mutation(internal.sessions.activate, { id, liveId: "live-review" });
+    vi.setSystemTime(Date.now() + 10000);
     await a.mutation(api.sessions.finalize, {
       id,
       confirmed: true,

@@ -36,6 +36,7 @@ export function Preparation({
   const remove = useMutation(api.preparation.remove);
   const removeAttachment = useMutation(api.preparation.removeAttachment);
   const createInbox = useAction(api.email.create);
+  const rotateMarker = useAction(api.email.rotateMarker);
   const [url, setUrl] = useState("");
   const [initialSelection] = useState(() =>
     new URLSearchParams(location.search).get("prep"),
@@ -58,7 +59,7 @@ export function Preparation({
   }, [selected, opportunities, initialSelection]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [autoReply, setAutoReply] = useState(true);
+  const [autoReply, setAutoReply] = useState(false);
   const [copied, setCopied] = useState(false);
   const current =
     selectedOpportunity === undefined
@@ -161,10 +162,10 @@ export function Preparation({
         {inbox ? (
           <>
             <p>
-              Forward the invitation to your private preparation inbox. Email
-              text and PDF, DOCX, and plain-text attachments are included in
-              your preparation. Up to 10 files, 5 MB each (15 MB total); PDFs up
-              to 30 pages. Scanned PDFs and images need a text-based copy.
+              Forward the invitation using the email details below. Email text
+              and PDF, DOCX, and plain-text attachments are included in your
+              preparation. Up to 10 files, 5 MB each (15 MB total); PDFs up to
+              30 pages. Scanned PDFs and images need a text-based copy.
             </p>
             <div className="inbox-address">
               <code>{inbox.address}</code>
@@ -179,6 +180,63 @@ export function Preparation({
                 {copied ? <Check size={16} /> : "Copy"}
               </button>
             </div>
+            {inbox.subjectMarker && (
+              <>
+                <p>
+                  This address is shared. Add your account marker to the email
+                  subject so the invitation appears only in your workspace. Keep
+                  the marker private: anyone with it can submit preparation
+                  materials to your account. They cannot read your workspace.
+                </p>
+                <div className="inbox-address">
+                  <code>{inbox.subjectMarker}</code>
+                  <button
+                    onClick={() =>
+                      void navigator.clipboard
+                        .writeText(inbox.subjectMarker!)
+                        .catch(() =>
+                          setError("Copy the subject marker manually."),
+                        )
+                    }
+                  >
+                    Copy marker
+                  </button>
+                </div>
+                <p>
+                  If the marker was shared accidentally, replace it below. The
+                  old marker will stop accepting new invitations; saved
+                  preparations stay in your account.
+                </p>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      const updated = await rotateMarker({
+                        expectedMarker: inbox.subjectMarker!,
+                      });
+                      if (updated.subjectMarker) {
+                        await navigator.clipboard
+                          .writeText(updated.subjectMarker)
+                          .catch(() =>
+                            setError(
+                              "Your new marker is ready. Copy it manually.",
+                            ),
+                          );
+                      }
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Replace and copy marker
+                </button>
+              </>
+            )}
             <small>
               {inbox.autoReply
                 ? "A preparation link will be sent in reply when your brief is ready."
@@ -188,8 +246,9 @@ export function Preparation({
         ) : (
           <>
             <p>
-              Create an inbox just for your interviews. Forwarded messages will
-              appear here automatically.
+              Link email preparation to your account. You will get a shared
+              forwarding address and a private subject marker that routes
+              invitations to your workspace.
             </p>
             <label className="check-label">
               <input
@@ -214,7 +273,7 @@ export function Preparation({
                 }
               }}
             >
-              Create my preparation inbox
+              Set up email preparation
             </button>
           </>
         )}

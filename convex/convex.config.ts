@@ -8,8 +8,15 @@ import rateLimiter from "@convex-dev/rate-limiter/convex.config";
 import agentmail from "@agentmail/convex/convex.config";
 import firecrawl from "@firecrawl/firecrawl-convex/convex.config";
 import staticHosting from "@convex-dev/static-hosting/convex.config";
+import stripe from "@convex-dev/stripe/convex.config.js";
 const app = defineApp({
   env: {
+    STRIPE_SECRET_KEY: v.optional(v.string()),
+    STRIPE_WEBHOOK_SECRET: v.optional(v.string()),
+    STRIPE_PLUS_PRICE_ID: v.optional(v.string()),
+    STRIPE_PRO_PRICE_ID: v.optional(v.string()),
+    STRIPE_PORTAL_CONFIGURATION_ID: v.optional(v.string()),
+    AGENTMAIL_SHARED_INBOX_ID: v.optional(v.string()),
     AUTH_PRIVATE_KEY: v.string(),
     AUTH_JWKS: v.string(),
     SITE_URL: v.string(),
@@ -33,4 +40,5 @@ app.use(workflow);
 app.use(rateLimiter);
 app.use(agentmail, { env: { AGENTMAIL_API_KEY: app.env.AGENTMAIL_API_KEY } });
 app.use(staticHosting);
+app.use(stripe);
 export default app;

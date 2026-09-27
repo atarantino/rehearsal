@@ -1,38 +1,83 @@
 import { v, ConvexError } from "convex/values";
 import { AgentMail } from "@agentmail/convex";
 import { z } from "zod";
-import { query, action, internalMutation } from "./_generated/server";
+import { query, action, internalMutation, env } from "./_generated/server";
 import { api, components, internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { requireUser } from "./users";
 import { limits } from "./limits";
 import { enqueue } from "./preparation";
+import { isPlanLimitError } from "./entitlements";
 import { MAX_ATTACHMENTS } from "../shared/attachments";
+import {
+  routingTokenFromSubject,
+  sharedInboxAddress,
+  subjectMarker,
+} from "../shared/email-routing";
+const inboxView = v.object({
+  address: v.string(),
+  autoReply: v.boolean(),
+  subjectMarker: v.optional(v.string()),
+});
+function viewInbox(inbox: Doc<"inboxes">) {
+  return {
+    address: inbox.address,
+    autoReply: inbox.autoReply,
+    ...(inbox.routingMode === "shared" && inbox.routingToken
+      ? { subjectMarker: subjectMarker(inbox.routingToken) }
+      : {}),
+  };
+}
 export const agentmail: AgentMail = new AgentMail(components.agentmail, {
   onMessageReceived: internal.email.received,
 });
 export const inbox = query({
   args: {},
-  returns: v.union(
-    v.object({ address: v.string(), autoReply: v.boolean() }),
-    v.null(),
-  ),
+  returns: v.union(inboxView, v.null()),
   handler: async (ctx) => {
     const user = await requireUser(ctx);
     const i = await ctx.db
       .query("inboxes")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
       .unique();
-    return i ? { address: i.address, autoReply: i.autoReply } : null;
+    return i ? viewInbox(i) : null;
   },
 });
 export const reserve = internalMutation({
-  args: {},
-  returns: v.id("users"),
-  handler: async (ctx) => {
+  args: { autoReply: v.boolean(), routingToken: v.string() },
+  returns: inboxView,
+  handler: async (ctx, { autoReply, routingToken }) => {
     const u = await requireUser(ctx);
+    const existing = await ctx.db
+      .query("inboxes")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", u._id))
+      .unique();
+    if (existing) return viewInbox(existing);
+    const address = sharedInboxAddress(env.AGENTMAIL_SHARED_INBOX_ID);
+    if (!address || !env.AGENTMAIL_API_KEY || !env.AGENTMAIL_WEBHOOK_SECRET)
+      throw new ConvexError(
+        "Email setup is not finished yet. You can paste a job URL in the meantime.",
+      );
+    if (!/^[a-f0-9]{32}$/.test(routingToken))
+      throw new Error("Invalid mail routing token.");
     await limits.limit(ctx, "inbox", { key: u._id, throws: true });
-    return u._id;
+    const collision = await ctx.db
+      .query("inboxes")
+      .withIndex("by_inboxId_and_routingToken", (q) =>
+        q.eq("inboxId", address).eq("routingToken", routingToken),
+      )
+      .unique();
+    if (collision)
+      throw new Error("Mail routing token already exists. Try again.");
+    await ctx.db.insert("inboxes", {
+      ownerId: u._id,
+      inboxId: address,
+      address,
+      autoReply,
+      routingMode: "shared",
+      routingToken,
+    });
+    return { address, autoReply, subjectMarker: subjectMarker(routingToken) };
   },
 });
 export const save = internalMutation({
@@ -49,44 +94,66 @@ export const save = internalMutation({
   },
 });
 export const create = action({
-  args: { autoReply: v.boolean() },
-  returns: v.object({ address: v.string(), autoReply: v.boolean() }),
+  args: { autoReply: v.optional(v.boolean()) },
+  returns: inboxView,
   handler: async (
     ctx,
     { autoReply },
-  ): Promise<{ address: string; autoReply: boolean }> => {
+  ): Promise<ReturnType<typeof viewInbox>> => {
     const existing = await ctx.runQuery(api.email.inbox, {});
     if (existing) return existing;
-    if (!process.env.AGENTMAIL_API_KEY || !process.env.AGENTMAIL_WEBHOOK_SECRET)
+    return await ctx.runMutation(internal.email.reserve, {
+      autoReply: autoReply ?? false,
+      routingToken: crypto.randomUUID().replaceAll("-", ""),
+    });
+  },
+});
+export const replaceMarker = internalMutation({
+  args: { expectedToken: v.string(), routingToken: v.string() },
+  returns: inboxView,
+  handler: async (ctx, { expectedToken, routingToken }) => {
+    const user = await requireUser(ctx);
+    const route = await ctx.db
+      .query("inboxes")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))
+      .unique();
+    if (!route || route.routingMode !== "shared" || !route.routingToken)
       throw new ConvexError(
-        "Email setup is not finished yet. You can paste a job URL in the meantime.",
+        "This account does not have a shared email marker.",
       );
-    const ownerId: Id<"users"> = await ctx.runMutation(
-      internal.email.reserve,
-      {},
-    );
-    try {
-      const i = await ctx.runAction(components.agentmail.lib.createInbox, {
-        request: {
-          display_name: "Rehearsal interview preparation",
-          client_id: `rehearsal-${ownerId}`,
-        },
-      });
-      if (typeof i.inbox_id !== "string") throw new Error("Invalid inbox.");
-      await ctx.runMutation(internal.email.save, {
-        ownerId,
-        inboxId: i.inbox_id,
-        autoReply,
-      });
-      return { address: i.inbox_id, autoReply };
-    } catch (e) {
-      const unavailable = /(?:error|HTTP) 403/.test(String(e));
+    // Retrying a request must not invalidate the marker it just returned.
+    if (route.routingToken !== expectedToken) return viewInbox(route);
+    if (!/^[a-f0-9]{32}$/.test(routingToken) || routingToken === expectedToken)
+      throw new Error("Invalid replacement mail routing token.");
+    await limits.limit(ctx, "inbox", { key: user._id, throws: true });
+    const collision = await ctx.db
+      .query("inboxes")
+      .withIndex("by_inboxId_and_routingToken", (q) =>
+        q.eq("inboxId", route.inboxId).eq("routingToken", routingToken),
+      )
+      .unique();
+    if (collision)
+      throw new Error("Mail routing token already exists. Try again.");
+    await ctx.db.patch(route._id, { routingToken });
+    return viewInbox({ ...route, routingToken });
+  },
+});
+export const rotateMarker = action({
+  args: { expectedMarker: v.string() },
+  returns: inboxView,
+  handler: async (
+    ctx,
+    { expectedMarker },
+  ): Promise<ReturnType<typeof viewInbox>> => {
+    const expectedToken = routingTokenFromSubject(expectedMarker);
+    if (!expectedToken || expectedMarker !== subjectMarker(expectedToken))
       throw new ConvexError(
-        unavailable
-          ? "The email provider cannot create another inbox right now. Paste a job URL to prepare, or ask the app owner to check inbox capacity."
-          : "Your email inbox could not be created. Try again shortly.",
+        "Use the current subject marker shown in your workspace.",
       );
-    }
+    return ctx.runMutation(internal.email.replaceMarker, {
+      expectedToken,
+      routingToken: crypto.randomUUID().replaceAll("-", ""),
+    });
   },
 });
 const messageSchema = z.object({
@@ -118,11 +185,29 @@ export const received = internalMutation({
       message.labels?.some((x) => ["spam", "blocked", "auto-reply"].includes(x))
     )
       return null;
-    const inbox = await ctx.db
-      .query("inboxes")
-      .withIndex("by_inboxId", (q) => q.eq("inboxId", message.inbox_id))
-      .unique();
-    if (!inbox) return null;
+    let inbox: Doc<"inboxes"> | null = null;
+    if (
+      message.inbox_id === sharedInboxAddress(env.AGENTMAIL_SHARED_INBOX_ID)
+    ) {
+      const token = routingTokenFromSubject(message.subject);
+      if (!token) return null;
+      inbox = await ctx.db
+        .query("inboxes")
+        .withIndex("by_inboxId_and_routingToken", (q) =>
+          q.eq("inboxId", message.inbox_id).eq("routingToken", token),
+        )
+        .unique();
+      if (inbox?.routingMode !== "shared") return null;
+    } else {
+      const matches = await ctx.db
+        .query("inboxes")
+        .withIndex("by_inboxId", (q) => q.eq("inboxId", message.inbox_id))
+        .take(2);
+      if (matches.length !== 1 || matches[0].routingMode === "shared")
+        return null;
+      inbox = matches[0];
+    }
+    if (!inbox || !(await ctx.db.get(inbox.ownerId))) return null;
     if (
       await ctx.db
         .query("mailEvents")
@@ -132,12 +217,22 @@ export const received = internalMutation({
       return null;
     const text = message.text || message.extracted_text;
     if (!text && !message.attachments?.length) return null;
-    await enqueue(ctx, {
+    // Existing dedicated routes retain their historical deduplication key.
+    const subject =
+      inbox.routingMode === "shared" && inbox.routingToken
+        ? (message.subject ?? "")
+            .replace(subjectMarker(inbox.routingToken), "")
+            .trim()
+        : message.subject;
+    const preparation = {
       ownerId: inbox.ownerId,
-      requestId: `mail:${message.message_id}`,
-      kind: "email",
+      requestId:
+        inbox.routingMode === "shared"
+          ? `mail:${message.inbox_id}:${message.message_id}`
+          : `mail:${message.message_id}`,
+      kind: "email" as const,
       input:
-        `Subject: ${message.subject ?? "Interview invitation"}\n\n${text ?? ""}`.slice(
+        `Subject: ${subject || "Interview invitation"}\n\n${text ?? ""}`.slice(
           0,
           18000,
         ),
@@ -154,7 +249,21 @@ export const received = internalMutation({
         0,
         (message.attachments?.length ?? 0) - MAX_ATTACHMENTS,
       ),
-    });
+    };
+    let id: Id<"opportunities">;
+    try {
+      id = await enqueue(ctx, preparation);
+    } catch (error) {
+      if (!isPlanLimitError(error)) throw error;
+      id = await ctx.db.insert("opportunities", {
+        ...preparation,
+        status: "failed",
+        sources: [],
+        receivedAt: Date.now(),
+        error: `${error.data.message} Your invitation is saved. Retry preparation when your allowance is available.`,
+      });
+    }
+    await ctx.db.patch(id, { inboxRecordId: inbox._id });
     await ctx.db.insert("mailEvents", { eventId: args.eventId });
     return null;
   },
@@ -166,17 +275,20 @@ export const notifyReady = internalMutation({
     const o = await ctx.db.get(id);
     if (!o || !o.inboxId || !o.messageId || o.replyId || o.status !== "ready")
       return null;
-    const i = await ctx.db
-      .query("inboxes")
-      .withIndex("by_inboxId", (q) => q.eq("inboxId", o.inboxId!))
-      .unique();
-    if (!i?.autoReply || i.ownerId !== o.ownerId) return null;
+    const i = o.inboxRecordId
+      ? await ctx.db.get(o.inboxRecordId)
+      : await ctx.db
+          .query("inboxes")
+          .withIndex("by_ownerId", (q) => q.eq("ownerId", o.ownerId))
+          .unique();
+    if (!i?.autoReply || i.ownerId !== o.ownerId || i.inboxId !== o.inboxId)
+      return null;
     const replyId = await agentmail.replyToMessage(
       ctx,
       o.inboxId,
       o.messageId,
       {
-        text: `Your interview preparation is ready. Open your private Rehearsal workspace to review the brief and practice out loud:\n${process.env.SITE_URL}/?prep=${id}\n\nSign in with the passkey you used when you created this inbox.`,
+        text: `Your interview preparation is ready. Open your private Rehearsal workspace to review the brief and practice out loud:\n${env.SITE_URL}/?prep=${id}\n\nSign in with the passkey for your Rehearsal account.`,
         replyAll: false,
         labels: ["auto-reply"],
       },

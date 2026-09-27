@@ -7,5 +7,11 @@ export const limits = new RateLimiter(components.rateLimiter, {
   feedback: { kind: "fixed window", rate: 25, period: DAY },
   inbox: { kind: "fixed window", rate: 3, period: HOUR },
   globalVoice: { kind: "fixed window", rate: 100, period: DAY },
+  globalFreeVoiceMinutes: {
+    kind: "fixed window",
+    rate: 200,
+    period: DAY,
+    start: 0,
+  },
   globalResearch: { kind: "fixed window", rate: 100, period: DAY },
 });

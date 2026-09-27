@@ -31,12 +31,18 @@ type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
   readonly AGENTMAIL_API_KEY: string;
+  readonly AGENTMAIL_SHARED_INBOX_ID: string | undefined;
   readonly AGENTMAIL_WEBHOOK_SECRET: string | undefined;
   readonly AUTH_JWKS: string;
   readonly AUTH_PRIVATE_KEY: string;
   readonly FIRECRAWL_API_KEY: string;
   readonly OPENAI_API_KEY: string | undefined;
   readonly SITE_URL: string;
+  readonly STRIPE_PLUS_PRICE_ID: string | undefined;
+  readonly STRIPE_PORTAL_CONFIGURATION_ID: string | undefined;
+  readonly STRIPE_PRO_PRICE_ID: string | undefined;
+  readonly STRIPE_SECRET_KEY: string | undefined;
+  readonly STRIPE_WEBHOOK_SECRET: string | undefined;
 };
 
 /**

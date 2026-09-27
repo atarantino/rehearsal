@@ -10,7 +10,9 @@
 
 import type * as attachments from "../attachments.js";
 import type * as auth from "../auth.js";
+import type * as billing from "../billing.js";
 import type * as email from "../email.js";
+import type * as entitlements from "../entitlements.js";
 import type * as http from "../http.js";
 import type * as limits from "../limits.js";
 import type * as openai from "../openai.js";
@@ -18,6 +20,7 @@ import type * as preparation from "../preparation.js";
 import type * as research from "../research.js";
 import type * as resumes from "../resumes.js";
 import type * as sessions from "../sessions.js";
+import type * as usage from "../usage.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 import type * as voice from "../voice.js";
@@ -32,7 +35,9 @@ import type {
 declare const fullApi: ApiFromModules<{
   attachments: typeof attachments;
   auth: typeof auth;
+  billing: typeof billing;
   email: typeof email;
+  entitlements: typeof entitlements;
   http: typeof http;
   limits: typeof limits;
   openai: typeof openai;
@@ -40,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   research: typeof research;
   resumes: typeof resumes;
   sessions: typeof sessions;
+  usage: typeof usage;
   users: typeof users;
   validators: typeof validators;
   voice: typeof voice;
@@ -81,4 +87,5 @@ export declare const components: {
   rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
   agentmail: import("@agentmail/convex/_generated/component.js").ComponentApi<"agentmail">;
   staticHosting: import("@convex-dev/static-hosting/_generated/component.js").ComponentApi<"staticHosting">;
+  stripe: import("@convex-dev/stripe/_generated/component.js").ComponentApi<"stripe">;
 };
