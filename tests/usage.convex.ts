@@ -45,6 +45,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("subscription allowances", () => {
@@ -424,6 +425,159 @@ describe("subscription allowances", () => {
     await expect(
       a.mutation(internal.sessions.reserve, { config, requestId: "next-day" }),
     ).resolves.toBeTruthy();
+  });
+  it("failed Free starts cost attempts, not shared minutes, and never paid start capacity", async () => {
+    const { t, a, ownerId } = await setup();
+    vi.stubEnv("OPENAI_API_KEY", "test-only");
+    let providerUp = false;
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith("/live/sessions") && providerUp)
+        return new Response(
+          JSON.stringify({
+            session: { id: `live-${Math.random()}` },
+            transport: { sdp: "v=0\r\nm=audio" },
+          }),
+        );
+      if (url.includes("/hangup")) return new Response("{}");
+      return new Response("provider unavailable", { status: 503 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const liveStarts = () =>
+      fetchMock.mock.calls.filter((c) =>
+        String(c[0]).endsWith("/live/sessions"),
+      ).length;
+    const sdp = "v=0\r\nm=audio";
+    // Thirty Free accounts each fail four provider starts: 120 attempts.
+    for (let u = 0; u < 30; u++) {
+      const user = await t.run((ctx) =>
+        ctx.db.insert("users", { username: `free-${u}` }),
+      );
+      const c = t.withIdentity({ subject: user });
+      for (let n = 0; n < 4; n++)
+        await expect(
+          c.action(api.voice.start, { config, requestId: `f${u}-${n}`, sdp }),
+        ).rejects.toThrow("OpenAI could not complete");
+      // The fifth attempt is a readable per-account attempt limit; no provider call.
+      await expect(
+        c.action(api.voice.start, { config, requestId: `f${u}-x`, sdp }),
+      ).rejects.toThrow("a few voice sessions a day");
+    }
+    // Exactly one provider start per admitted attempt; blocked attempts make none.
+    expect(liveStarts()).toBe(120);
+    // Every failed reservation was released: no shared minutes remain debited.
+    const ledger = await t.run((ctx) =>
+      ctx.db.query("freeVoiceDays").collect(),
+    );
+    expect(ledger.map((d) => d.reservedMinutes)).toEqual([0]);
+    // The shared Free start budget is now exhausted for a fresh Free account...
+    const victim = await t.run((ctx) =>
+      ctx.db.insert("users", { username: "victim" }),
+    );
+    await expect(
+      t
+        .withIdentity({ subject: victim })
+        .action(api.voice.start, { config, requestId: "v", sdp }),
+    ).rejects.toThrow("shared start limit");
+    expect(liveStarts()).toBe(120);
+    // ...while a paid account still starts through its own aggregate budget.
+    await t.run((ctx) =>
+      ctx.db.insert("billingAccounts", {
+        ownerId,
+        priceId: "price_plus",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        syncRevision: 0,
+        periodStart: start - 1000,
+        periodEnd: start + 30 * 86400000,
+      }),
+    );
+    providerUp = true;
+    const paid = await a.action(api.voice.start, {
+      config,
+      requestId: "paid",
+      sdp,
+    });
+    expect(paid.record.status).toBe("active");
+    expect(liveStarts()).toBe(121);
+    // Paid accounts keep the pre-existing per-account daily start limit.
+    await a.action(api.voice.close, { id: paid.record.id as never });
+    for (let n = 1; n < 10; n++) {
+      const next = await a.action(api.voice.start, {
+        config,
+        requestId: `paid-${n}`,
+        sdp,
+      });
+      await a.action(api.voice.close, { id: next.record.id as never });
+    }
+    await expect(
+      a.action(api.voice.start, { config, requestId: "paid-11", sdp }),
+    ).rejects.toThrow();
+    expect(liveStarts()).toBe(130);
+  });
+  it("releases unused shared Free capacity exactly once to the day it debited, and never for legacy rows", async () => {
+    const { t, a } = await setup();
+    const day = Date.UTC(2026, 8, 15);
+    const nextDay = day + 86400000;
+    const ledgerFor = (d: number) =>
+      t.run((ctx) =>
+        ctx.db
+          .query("freeVoiceDays")
+          .withIndex("by_day", (q) => q.eq("day", d))
+          .unique(),
+      );
+    // Reserve one minute before midnight UTC; that day's ledger holds 5.
+    vi.setSystemTime(nextDay - 60000);
+    const id = await a.mutation(internal.sessions.reserve, {
+      config,
+      requestId: "late",
+    });
+    expect((await ledgerFor(day))?.reservedMinutes).toBe(5);
+    await t.mutation(internal.sessions.activate, { id, liveId: "live-late" });
+    // Another Free account starts after midnight, seeding the next day's ledger.
+    vi.setSystemTime(nextDay + 10000);
+    const other = await t.run((ctx) =>
+      ctx.db.insert("users", { username: "other" }),
+    );
+    const seeded = await t
+      .withIdentity({ subject: other })
+      .mutation(internal.sessions.reserve, { config, requestId: "seed" });
+    expect((await ledgerFor(nextDay))?.reservedMinutes).toBe(5);
+    // The late session ends 90 seconds after it began: 2 minutes are charged to
+    // the day it started; the next day's ledger is untouched.
+    vi.setSystemTime(nextDay + 30000);
+    await a.mutation(internal.sessions.markClosed, {
+      id,
+      reason: "close_requested",
+    });
+    expect((await ledgerFor(day))?.reservedMinutes).toBe(2);
+    expect((await ledgerFor(nextDay))?.reservedMinutes).toBe(5);
+    // Repeated settlement paths do not credit again.
+    await a.mutation(internal.sessions.markClosed, {
+      id,
+      reason: "connection_lost",
+    });
+    await a.mutation(api.sessions.remove, { id });
+    expect((await ledgerFor(day))?.reservedMinutes).toBe(2);
+    // A reservation predating the ledger has no freeDay and never credits.
+    await t.run(async (ctx) => {
+      const r = await ctx.db
+        .query("voiceReservations")
+        .withIndex("by_sessionId", (q) => q.eq("sessionId", seeded))
+        .unique();
+      await ctx.db.patch(r!._id, { freeDay: undefined });
+    });
+    await t
+      .withIdentity({ subject: other })
+      .mutation(internal.sessions.markClosed, {
+        id: seeded,
+        reason: "startup_failed",
+      });
+    expect((await ledgerFor(nextDay))?.reservedMinutes).toBe(5);
+    // Account quotas are unchanged: the honest session charged 2 minutes.
+    expect(await a.query(usageSummary, { now: Date.now() })).toMatchObject({
+      voiceMinutesUsed: 2,
+      voiceMinutesReserved: 0,
+    });
   });
   it("bounds failed feedback retries per interview", async () => {
     const { a } = await setup();

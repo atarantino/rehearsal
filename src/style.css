@@ -2431,3 +2431,24 @@ h2 {
     flex-wrap: wrap;
   }
 }
+
+.prep-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+.prep-error p {
+  margin: 0;
+  flex: 1 1 auto;
+}
+.prep-error .text-button {
+  font-weight: 600;
+  text-decoration: underline;
+  padding: 0;
+}
+.billing-usage-note {
+  font-size: 14px;
+  margin: 0 0 14px;
+  max-width: 62ch;
+}

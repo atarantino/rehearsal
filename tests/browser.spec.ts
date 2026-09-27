@@ -1070,3 +1070,30 @@ test("document failures keep the draft and offer pasting; column PDFs remain edi
   await page.getByRole("button", { name: "Add resume", exact: true }).click();
   await expect(page.getByLabel("Resume text", { exact: true })).toHaveValue("");
 });
+test("plan-limit failures in preparation read clearly and lead to plans", async ({
+  page,
+}) => {
+  await page.goto("/harness/");
+  await expect(page.getByTestId("view")).toHaveText("setup");
+  // URL preparation: the real create handler rejects with a structured error.
+  await page.getByLabel("Job posting URL").fill("https://example.com/jobs/2");
+  await page.getByRole("button", { name: "Prepare", exact: true }).click();
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText(
+    "Your preparation allowance is used up. Upgrade your plan or wait for the next period.",
+  );
+  await expect(alert).not.toContainText("ConvexError");
+  await alert.getByRole("button", { name: "View plans" }).click();
+  await expect(page.getByTestId("view")).toHaveText("billing");
+  // Retry of a saved over-quota preparation goes through the same path.
+  await page.reload();
+  await page.getByRole("button", { name: "Prepare again" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Your preparation allowance is used up.",
+  );
+  await page
+    .getByRole("alert")
+    .getByRole("button", { name: "View plans" })
+    .click();
+  await expect(page.getByTestId("view")).toHaveText("billing");
+});

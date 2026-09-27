@@ -220,6 +220,11 @@ export function Billing() {
               />
             </div>
           </section>
+          <p className="muted billing-usage-note">
+            A session can start only while its full length is available. When it
+            ends, you are charged the minutes actually used, rounded up to the
+            next minute, and the rest is released.
+          </p>
           <div className="billing-plans" aria-label="Available plans">
             {PLAN_ORDER.map((id) => {
               const plan = PLANS[id];
@@ -249,6 +254,12 @@ export function Billing() {
                     <li>
                       <Check size={16} />
                       {plan.voiceMinutes} voice minutes / month
+                    </li>
+                    <li>
+                      <Check size={16} />
+                      {id === "free"
+                        ? "Focused practice only. Each attempt needs 5 available minutes; a mock interview needs 20."
+                        : "Focused practice needs 5 available minutes to start; a mock interview needs 20."}
                     </li>
                     <li>
                       <Check size={16} />

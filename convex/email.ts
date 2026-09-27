@@ -255,6 +255,15 @@ export const received = internalMutation({
       id = await enqueue(ctx, preparation);
     } catch (error) {
       if (!isPlanLimitError(error)) throw error;
+      // Retain a bounded rate of over-quota invitations per owner and overall.
+      // Beyond that, acknowledge and drop without writing any row. This bounds
+      // how fast a disclosed marker can add rows; rotating the marker stops it.
+      const owner = await limits.limit(ctx, "mailIntake", {
+        key: inbox.ownerId,
+      });
+      if (!owner.ok) return null;
+      const shared = await limits.limit(ctx, "globalMailIntake", {});
+      if (!shared.ok) return null;
       id = await ctx.db.insert("opportunities", {
         ...preparation,
         status: "failed",

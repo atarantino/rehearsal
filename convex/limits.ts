@@ -6,12 +6,20 @@ export const limits = new RateLimiter(components.rateLimiter, {
   voice: { kind: "fixed window", rate: 10, period: DAY },
   feedback: { kind: "fixed window", rate: 25, period: DAY },
   inbox: { kind: "fixed window", rate: 3, period: HOUR },
+  // Voice start attempts are non-refundable and separate from minute capacity.
+  // Paid accounts share globalVoice; Free accounts have their own budgets so
+  // Free failures cannot exhaust paid start capacity.
   globalVoice: { kind: "fixed window", rate: 100, period: DAY },
-  globalFreeVoiceMinutes: {
+  freeVoiceStarts: { kind: "token bucket", rate: 4, period: DAY, capacity: 4 },
+  globalFreeVoiceStarts: {
     kind: "fixed window",
-    rate: 200,
+    rate: 120,
     period: DAY,
     start: 0,
   },
   globalResearch: { kind: "fixed window", rate: 100, period: DAY },
+  // Over-quota invitations retained per owner and service-wide per UTC day;
+  // excess is acknowledged and dropped.
+  mailIntake: { kind: "fixed window", rate: 5, period: DAY, start: 0 },
+  globalMailIntake: { kind: "fixed window", rate: 100, period: DAY, start: 0 },
 });

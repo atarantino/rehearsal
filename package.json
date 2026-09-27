@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && tsc --noEmit -p convex/tsconfig.json && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "test": "tsx --test tests/*.test.ts && npm run test:backend",
-    "test:e2e": "VITE_LOCAL_MODE=true vite build --outDir dist-test && playwright test",
+    "test:e2e": "VITE_LOCAL_MODE=true vite build --outDir dist-test && vite build --config tests/harness/vite.config.ts && playwright test",
     "check:live": "tsx scripts/check-live.ts",
     "eval:feedback": "tsx scripts/evaluate-feedback.ts",
     "format": "prettier --write src server shared tests scripts convex/*.ts *.ts *.json index.html README.md",
