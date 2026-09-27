@@ -331,9 +331,10 @@ describe("shared email routing", () => {
     expect(await b.query(api.email.inbox, {})).toEqual(bobInbox);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
-  it("bounds over-quota intake per owner and service-wide without provider calls or audit rows", async () => {
+  it("bounds over-quota intake per owner per UTC day; redelivery does not consume retention", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(Date.UTC(2026, 8, 15, 12));
+    const midnight = Date.UTC(2026, 8, 16);
+    vi.setSystemTime(midnight - 60000);
     const { t, a, b } = await setup();
     vi.spyOn(workflow, "start").mockResolvedValue("workflow-test" as never);
     await a.mutation(internal.email.reserve, {
@@ -354,29 +355,83 @@ describe("shared email routing", () => {
         thread: {},
         eventId: `flood-${token[0]}-${n}${eventSuffix}`,
       });
-    for (let n = 0; n < 40; n++) await deliver(aliceToken, n);
-    const rows = await t.run((ctx) => ctx.db.query("opportunities").collect());
-    // 3 within allowance start research; 5 over-quota are retained; 32 dropped.
-    expect(rows).toHaveLength(8);
-    expect(rows.filter((r) => r.status === "failed")).toHaveLength(5);
+    const rows = () => t.run((ctx) => ctx.db.query("opportunities").collect());
+    const events = () => t.run((ctx) => ctx.db.query("mailEvents").collect());
+    // 3 within allowance start research; 2 more over-quota are retained.
+    for (let n = 0; n < 5; n++) await deliver(aliceToken, n);
+    expect(await rows()).toHaveLength(5);
     expect(workflow.start).toHaveBeenCalledTimes(3);
-    expect(
-      await t.run((ctx) => ctx.db.query("mailEvents").collect()),
-    ).toHaveLength(8);
-    // Redelivery of a retained over-quota message neither duplicates nor consumes.
-    await deliver(aliceToken, 5, "-redelivered");
-    expect(
-      await t.run((ctx) => ctx.db.query("opportunities").collect()),
-    ).toHaveLength(8);
-    // Another owner is unaffected by Alice's flood.
+    // Redelivering a retained over-quota message (new event id) adds nothing
+    // and leaves all three remaining retention slots available.
+    await deliver(aliceToken, 4, "-redelivered");
+    expect(await rows()).toHaveLength(5);
+    for (let n = 5; n < 8; n++) await deliver(aliceToken, n);
+    expect(await rows()).toHaveLength(8);
+    // Eight accepted events plus the redelivered event id were recorded.
+    expect(await events()).toHaveLength(9);
+    // Slot six is dropped: acknowledged, no row, no audit event.
+    await deliver(aliceToken, 8);
+    expect(await rows()).toHaveLength(8);
+    expect(await events()).toHaveLength(9);
+    // Another owner has their own retention and is unaffected.
     for (let n = 0; n < 4; n++) await deliver(bobToken, n);
     expect(await b.query(api.preparation.list, {})).toHaveLength(4);
     expect(workflow.start).toHaveBeenCalledTimes(6);
-    // Retention renews the next UTC day.
-    vi.setSystemTime(Date.UTC(2026, 8, 16, 12));
-    await deliver(aliceToken, 41);
+    // Still dropped one second before midnight; accepted one second after.
+    vi.setSystemTime(midnight - 1000);
+    await deliver(aliceToken, 9);
+    expect(await a.query(api.preparation.list, {})).toHaveLength(8);
+    vi.setSystemTime(midnight + 1000);
+    await deliver(aliceToken, 10);
     expect(await a.query(api.preparation.list, {})).toHaveLength(9);
-    vi.useRealTimers();
+    expect(workflow.start).toHaveBeenCalledTimes(6);
+  });
+  it("bounds retained over-quota mail service-wide without provider calls or audit rows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 8, 16, 12));
+    const { t } = await setup();
+    vi.spyOn(workflow, "start").mockResolvedValue("workflow-test" as never);
+    // 21 owners x 5 retained over-quota messages exceed the shared 100/day cap.
+    let retained = 0;
+    for (let u = 0; u < 21; u++) {
+      const user = await t.run((ctx) =>
+        ctx.db.insert("users", { username: `owner-${u}` }),
+      );
+      const token = u.toString(16).padStart(32, "0");
+      await t.withIdentity({ subject: user }).mutation(internal.email.reserve, {
+        autoReply: false,
+        routingToken: token,
+      });
+      // Exhaust the monthly allowance directly so no research starts here.
+      await t.run(async (ctx) => {
+        const now = new Date();
+        await ctx.db.insert("usagePeriods", {
+          ownerId: user,
+          periodStart: Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+          periodEnd: Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+          voiceMinutesUsed: 0,
+          voiceMinutesReserved: 0,
+          preparationsUsed: 3,
+          preparationLimit: 3,
+        });
+      });
+      for (let n = 0; n < 5; n++) {
+        await t.mutation(internal.email.received, {
+          message: { ...message(token), message_id: `g-${u}-${n}` },
+          thread: {},
+          eventId: `g-${u}-${n}`,
+        });
+        retained++;
+      }
+    }
+    expect(retained).toBe(105);
+    const rows = await t.run((ctx) => ctx.db.query("opportunities").collect());
+    expect(rows).toHaveLength(100);
+    expect(rows.every((r) => r.status === "failed")).toBe(true);
+    expect(
+      await t.run((ctx) => ctx.db.query("mailEvents").collect()),
+    ).toHaveLength(100);
+    expect(workflow.start).not.toHaveBeenCalled();
   });
   it("does not replace dedicated legacy inboxes or accept malformed markers", async () => {
     const { t, a, alice } = await setup();

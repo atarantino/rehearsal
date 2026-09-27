@@ -1074,16 +1074,26 @@ test("plan-limit failures in preparation read clearly and lead to plans", async 
   page,
 }) => {
   await page.goto("/harness/");
-  const limited = page.getByRole("region", { name: "plan limit" });
-  await expect(limited.getByRole("alert")).toHaveText(
-    /^Your preparation allowance is used up\. Upgrade your plan or wait for the next period\.View plans$/,
-  );
-  const ordinary = page.getByRole("region", { name: "ordinary" });
-  await expect(ordinary.getByRole("alert")).toHaveText(
-    "Use a public HTTPS job or company URL.",
-  );
-  await expect(ordinary.getByRole("button")).toHaveCount(0);
   await expect(page.getByTestId("view")).toHaveText("setup");
-  await limited.getByRole("button", { name: "View plans" }).click();
+  // URL preparation: the real create handler rejects with a structured error.
+  await page.getByLabel("Job posting URL").fill("https://example.com/jobs/2");
+  await page.getByRole("button", { name: "Prepare", exact: true }).click();
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText(
+    "Your preparation allowance is used up. Upgrade your plan or wait for the next period.",
+  );
+  await expect(alert).not.toContainText("ConvexError");
+  await alert.getByRole("button", { name: "View plans" }).click();
+  await expect(page.getByTestId("view")).toHaveText("billing");
+  // Retry of a saved over-quota preparation goes through the same path.
+  await page.reload();
+  await page.getByRole("button", { name: "Prepare again" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Your preparation allowance is used up.",
+  );
+  await page
+    .getByRole("alert")
+    .getByRole("button", { name: "View plans" })
+    .click();
   await expect(page.getByTestId("view")).toHaveText("billing");
 });

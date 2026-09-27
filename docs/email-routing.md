@@ -31,11 +31,13 @@ AgentMail API/webhook credentials before enabling shared email preparation.
 If a valid invitation arrives after the account's preparation allowance is used,
 the invitation and attachment metadata are saved privately as a failed
 preparation with a clear retry message. No research workflow starts until an
-allowed retry. Retention of over-quota mail is bounded: at most five such
+allowed retry. Retention of over-quota mail is rate-bounded: at most five such
 invitations per account per UTC day and one hundred across the service. Beyond
 that, the webhook is acknowledged and the message is dropped without saving
-anything, so a disclosed marker cannot grow storage or push real opportunities
-out of the recent list. Replace the marker if that happens. Duplicate webhook
-delivery does not create duplicate preparations or consume retention.
+anything or recording an audit row. This bounds how quickly a disclosed marker
+can add saved rows; over several days it can still add entries and push older
+opportunities out of the recent list, so replace the marker as soon as a leak is
+suspected. Duplicate webhook delivery does not create duplicate preparations or
+consume retention.
 Sharing a mail thread does not combine ownership or suppress otherwise distinct
 invitation messages.

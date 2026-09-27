@@ -18,7 +18,8 @@ export const limits = new RateLimiter(components.rateLimiter, {
     start: 0,
   },
   globalResearch: { kind: "fixed window", rate: 100, period: DAY },
-  // Over-quota invitations retained per owner and service-wide; excess is dropped.
-  mailIntake: { kind: "fixed window", rate: 5, period: DAY },
-  globalMailIntake: { kind: "fixed window", rate: 100, period: DAY },
+  // Over-quota invitations retained per owner and service-wide per UTC day;
+  // excess is acknowledged and dropped.
+  mailIntake: { kind: "fixed window", rate: 5, period: DAY, start: 0 },
+  globalMailIntake: { kind: "fixed window", rate: 100, period: DAY, start: 0 },
 });
