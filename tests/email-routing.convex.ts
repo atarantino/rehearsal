@@ -29,6 +29,7 @@ async function setup() {
   };
 }
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
