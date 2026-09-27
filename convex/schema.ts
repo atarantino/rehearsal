@@ -26,7 +26,8 @@ export default defineSchema({
     checkoutUrl: v.optional(v.string()),
     checkoutExpiresAt: v.optional(v.number()),
     checkoutPlan: v.optional(v.union(v.literal("plus"), v.literal("pro"))),
-  }).index("by_ownerId", ["ownerId"])
+  })
+    .index("by_ownerId", ["ownerId"])
     .index("by_stripeCustomerId", ["stripeCustomerId"]),
   users: defineTable({
     username: v.union(v.string(), v.null()),
@@ -68,7 +69,14 @@ export default defineSchema({
     minutes: v.number(),
     settledAt: v.optional(v.number()),
     chargedMinutes: v.optional(v.number()),
+    // UTC day whose shared Free capacity this reservation debited, if any.
+    freeDay: v.optional(v.number()),
   }).index("by_sessionId", ["sessionId"]),
+  // Shared Free voice capacity per UTC day: reserved minutes minus releases.
+  freeVoiceDays: defineTable({
+    day: v.number(),
+    reservedMinutes: v.number(),
+  }).index("by_day", ["day"]),
   fragments: defineTable({ sessionId: v.id("sessions"), fragment })
     .index("by_sessionId", ["sessionId"])
     .index("by_sessionId_and_eventId", ["sessionId", "fragment.event_id"]),
@@ -99,7 +107,9 @@ export default defineSchema({
     inboxId: v.string(),
     address: v.string(),
     autoReply: v.boolean(),
-    routingMode: v.optional(v.union(v.literal("dedicated"), v.literal("shared"))),
+    routingMode: v.optional(
+      v.union(v.literal("dedicated"), v.literal("shared")),
+    ),
     routingToken: v.optional(v.string()),
   })
     .index("by_ownerId", ["ownerId"])

@@ -531,6 +531,10 @@ export default function App() {
               />
               {cloudEnabled && (
                 <Preparation
+                  onViewPlans={() => {
+                    setError("");
+                    setView("billing");
+                  }}
                   onReady={prefillPreparation}
                   onOpportunityChange={() =>
                     setConfig((current) =>

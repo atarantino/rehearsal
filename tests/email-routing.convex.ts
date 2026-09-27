@@ -331,6 +331,53 @@ describe("shared email routing", () => {
     expect(await b.query(api.email.inbox, {})).toEqual(bobInbox);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+  it("bounds over-quota intake per owner and service-wide without provider calls or audit rows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 8, 15, 12));
+    const { t, a, b } = await setup();
+    vi.spyOn(workflow, "start").mockResolvedValue("workflow-test" as never);
+    await a.mutation(internal.email.reserve, {
+      autoReply: false,
+      routingToken: aliceToken,
+    });
+    await b.mutation(internal.email.reserve, {
+      autoReply: false,
+      routingToken: bobToken,
+    });
+    const deliver = (token: string, n: number, eventSuffix = "") =>
+      t.mutation(internal.email.received, {
+        message: {
+          ...message(token),
+          message_id: `flood-${token[0]}-${n}`,
+          text: "x".repeat(17000),
+        },
+        thread: {},
+        eventId: `flood-${token[0]}-${n}${eventSuffix}`,
+      });
+    for (let n = 0; n < 40; n++) await deliver(aliceToken, n);
+    const rows = await t.run((ctx) => ctx.db.query("opportunities").collect());
+    // 3 within allowance start research; 5 over-quota are retained; 32 dropped.
+    expect(rows).toHaveLength(8);
+    expect(rows.filter((r) => r.status === "failed")).toHaveLength(5);
+    expect(workflow.start).toHaveBeenCalledTimes(3);
+    expect(
+      await t.run((ctx) => ctx.db.query("mailEvents").collect()),
+    ).toHaveLength(8);
+    // Redelivery of a retained over-quota message neither duplicates nor consumes.
+    await deliver(aliceToken, 5, "-redelivered");
+    expect(
+      await t.run((ctx) => ctx.db.query("opportunities").collect()),
+    ).toHaveLength(8);
+    // Another owner is unaffected by Alice's flood.
+    for (let n = 0; n < 4; n++) await deliver(bobToken, n);
+    expect(await b.query(api.preparation.list, {})).toHaveLength(4);
+    expect(workflow.start).toHaveBeenCalledTimes(6);
+    // Retention renews the next UTC day.
+    vi.setSystemTime(Date.UTC(2026, 8, 16, 12));
+    await deliver(aliceToken, 41);
+    expect(await a.query(api.preparation.list, {})).toHaveLength(9);
+    vi.useRealTimers();
+  });
   it("does not replace dedicated legacy inboxes or accept malformed markers", async () => {
     const { t, a, alice } = await setup();
     await t.mutation(internal.email.save, {

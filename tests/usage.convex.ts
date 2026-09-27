@@ -425,6 +425,156 @@ describe("subscription allowances", () => {
       a.mutation(internal.sessions.reserve, { config, requestId: "next-day" }),
     ).resolves.toBeTruthy();
   });
+  it("failed Free starts cost attempts, not shared minutes, and never paid start capacity", async () => {
+    const { t, a, ownerId } = await setup();
+    vi.stubEnv("OPENAI_API_KEY", "test-only");
+    let providerUp = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) => {
+        if (url.endsWith("/live/sessions") && providerUp)
+          return new Response(
+            JSON.stringify({
+              session: { id: `live-${Math.random()}` },
+              transport: { sdp: "v=0\r\nm=audio" },
+            }),
+          );
+        if (url.includes("/hangup")) return new Response("{}");
+        return new Response("provider unavailable", { status: 503 });
+      }),
+    );
+    const sdp = "v=0\r\nm=audio";
+    // Thirty Free accounts each fail four provider starts: 120 attempts.
+    let failures = 0;
+    for (let u = 0; u < 30; u++) {
+      const user = await t.run((ctx) =>
+        ctx.db.insert("users", { username: `free-${u}` }),
+      );
+      const c = t.withIdentity({ subject: user });
+      for (let n = 0; n < 4; n++) {
+        await expect(
+          c.action(api.voice.start, { config, requestId: `f${u}-${n}`, sdp }),
+        ).rejects.toThrow();
+        failures++;
+      }
+      // The fifth attempt is a readable per-account attempt limit.
+      await expect(
+        c.action(api.voice.start, { config, requestId: `f${u}-x`, sdp }),
+      ).rejects.toThrow("a few voice sessions a day");
+    }
+    expect(failures).toBe(120);
+    // Every failed reservation was released: no shared minutes remain debited.
+    const ledger = await t.run((ctx) =>
+      ctx.db.query("freeVoiceDays").collect(),
+    );
+    expect(ledger.map((d) => d.reservedMinutes)).toEqual([0]);
+    // The shared Free start budget is now exhausted for a fresh Free account...
+    const victim = await t.run((ctx) =>
+      ctx.db.insert("users", { username: "victim" }),
+    );
+    await expect(
+      t
+        .withIdentity({ subject: victim })
+        .action(api.voice.start, { config, requestId: "v", sdp }),
+    ).rejects.toThrow("shared start limit");
+    // ...while a paid account still starts through its own aggregate budget.
+    await t.run((ctx) =>
+      ctx.db.insert("billingAccounts", {
+        ownerId,
+        priceId: "price_plus",
+        status: "active",
+        cancelAtPeriodEnd: false,
+        syncRevision: 0,
+        periodStart: start - 1000,
+        periodEnd: start + 30 * 86400000,
+      }),
+    );
+    providerUp = true;
+    const paid = await a.action(api.voice.start, {
+      config,
+      requestId: "paid",
+      sdp,
+    });
+    expect(paid.record.status).toBe("active");
+    // Paid accounts keep the pre-existing per-account daily start limit.
+    for (let n = 1; n < 10; n++) {
+      await a
+        .action(api.voice.close, { id: paid.record.id as any })
+        .catch(() => {});
+      const next = await a.action(api.voice.start, {
+        config,
+        requestId: `paid-${n}`,
+        sdp,
+      });
+      await a.action(api.voice.close, { id: next.record.id as any });
+    }
+    await expect(
+      a.action(api.voice.start, { config, requestId: "paid-11", sdp }),
+    ).rejects.toThrow();
+  });
+  it("releases unused shared Free capacity exactly once to the day it debited, and never for legacy rows", async () => {
+    const { t, a, ownerId } = await setup();
+    const day = Date.UTC(2026, 8, 15);
+    // Reserve one minute before midnight UTC; the ledger for that day holds 5.
+    vi.setSystemTime(day + 86400000 - 60000);
+    const id = await a.mutation(internal.sessions.reserve, {
+      config,
+      requestId: "late",
+    });
+    const ledgerFor = (d: number) =>
+      t.run((ctx) =>
+        ctx.db
+          .query("freeVoiceDays")
+          .withIndex("by_day", (q) => q.eq("day", d))
+          .unique(),
+      );
+    expect((await ledgerFor(day))?.reservedMinutes).toBe(5);
+    await t.mutation(internal.sessions.activate, { id, liveId: "live-late" });
+    // The session ends 90 seconds later, in the next UTC day: 2 minutes charged.
+    vi.setSystemTime(day + 86400000 + 30000);
+    await a.mutation(internal.sessions.markClosed, {
+      id,
+      reason: "close_requested",
+    });
+    expect((await ledgerFor(day))?.reservedMinutes).toBe(2);
+    expect(await ledgerFor(day + 86400000)).toBeNull();
+    // Repeated settlement paths do not credit again.
+    await a.mutation(internal.sessions.markClosed, {
+      id,
+      reason: "connection_lost",
+    });
+    await a.mutation(api.sessions.remove, { id });
+    expect((await ledgerFor(day))?.reservedMinutes).toBe(2);
+    // A reservation predating the ledger has no freeDay and never credits.
+    const other = await t.run((ctx) =>
+      ctx.db.insert("users", { username: "legacy" }),
+    );
+    const legacy = await t
+      .withIdentity({ subject: other })
+      .mutation(internal.sessions.reserve, { config, requestId: "legacy" });
+    await t.run(async (ctx) => {
+      const r = await ctx.db
+        .query("voiceReservations")
+        .withIndex("by_sessionId", (q) => q.eq("sessionId", legacy))
+        .unique();
+      await ctx.db.patch(r!._id, { freeDay: undefined });
+    });
+    const before = (await ledgerFor(day + 86400000))!.reservedMinutes;
+    expect(before).toBe(5);
+    await t
+      .withIdentity({ subject: other })
+      .mutation(internal.sessions.markClosed, {
+        id: legacy,
+        reason: "startup_failed",
+      });
+    expect((await ledgerFor(day + 86400000))!.reservedMinutes).toBe(5);
+    // Account quotas themselves are unchanged: the honest session charged 2 minutes.
+    expect(await a.query(usageSummary, { now: Date.now() })).toMatchObject({
+      voiceMinutesUsed: 2,
+      voiceMinutesReserved: 0,
+    });
+    void ownerId;
+  });
   it("bounds failed feedback retries per interview", async () => {
     const { a } = await setup();
     const id = await a.mutation(internal.sessions.reserve, {

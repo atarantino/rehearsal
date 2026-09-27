@@ -19,15 +19,18 @@ import { api } from "../convex/_generated/api";
 import type { SessionConfig } from "../shared/types";
 import type { Id } from "../convex/_generated/dataModel";
 import { OpportunityResume } from "./Resume";
+import { ErrorNotice } from "./ErrorNotice";
 import { DeleteSaved } from "./DeleteSaved";
 export function Preparation({
   onSelect,
   onReady,
   onOpportunityChange,
+  onViewPlans,
 }: {
   onSelect: (config: Partial<SessionConfig>) => void;
   onReady: (config: Partial<SessionConfig>) => void;
   onOpportunityChange: () => void;
+  onViewPlans?: () => void;
 }) {
   const opportunities = useQuery(api.preparation.list, {});
   const inbox = useQuery(api.email.inbox, {});
@@ -58,7 +61,8 @@ export function Preparation({
       );
   }, [selected, opportunities, initialSelection]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>("");
+  const fail = (e: unknown) => setError(e);
   const [autoReply, setAutoReply] = useState(false);
   const [copied, setCopied] = useState(false);
   const current =
@@ -115,7 +119,7 @@ export function Preparation({
       setSelected(id);
       setUrl("");
     } catch (e) {
-      setError((e as Error).message);
+      fail(e);
     } finally {
       setBusy(false);
     }
@@ -227,7 +231,7 @@ export function Preparation({
                           );
                       }
                     } catch (e) {
-                      setError((e as Error).message);
+                      fail(e);
                     } finally {
                       setBusy(false);
                     }
@@ -267,7 +271,7 @@ export function Preparation({
                 try {
                   await createInbox({ autoReply });
                 } catch (e) {
-                  setError((e as Error).message);
+                  fail(e);
                 } finally {
                   setBusy(false);
                 }
@@ -278,11 +282,7 @@ export function Preparation({
           </>
         )}
       </details>
-      {error && (
-        <p role="alert" className="auth-error">
-          {error}
-        </p>
-      )}
+      {!!error && <ErrorNotice error={error} onViewPlans={onViewPlans} />}
       {!!opportunities?.length && (
         <>
           <label htmlFor="opportunity" className="field-label">
@@ -383,11 +383,7 @@ export function Preparation({
                 current.attachments.some((a) => a.status === "failed") && (
                   <button
                     disabled={busy}
-                    onClick={() =>
-                      void retry({ id: current._id }).catch((e) =>
-                        setError(e.message),
-                      )
-                    }
+                    onClick={() => void retry({ id: current._id }).catch(fail)}
                   >
                     Retry attachment import
                   </button>
@@ -428,11 +424,7 @@ export function Preparation({
               <p>{current.error}</p>
               <button
                 disabled={busy}
-                onClick={() =>
-                  void retry({ id: current._id }).catch((e) =>
-                    setError(e.message),
-                  )
-                }
+                onClick={() => void retry({ id: current._id }).catch(fail)}
               >
                 Prepare again
               </button>

@@ -26,7 +26,12 @@ import {
 } from "../shared/types";
 import { requireUser } from "./users";
 import { limits } from "./limits";
-import { reserveVoice, settleVoice, hasFeedbackUsage } from "./usage";
+import {
+  limitVoiceStarts,
+  reserveVoice,
+  settleVoice,
+  hasFeedbackUsage,
+} from "./usage";
 export async function owned(ctx: QueryCtx | MutationCtx, id: Id<"sessions">) {
   const user = await requireUser(ctx);
   const s = await ctx.db.get(id);
@@ -80,7 +85,7 @@ export const reserve = internalMutation({
         "This start request was already used. Start a new attempt.",
       );
     await limits.limit(ctx, "voice", { key: user._id, throws: true });
-    await limits.limit(ctx, "globalVoice", { throws: true });
+    await limitVoiceStarts(ctx, user._id);
     const recent = await ctx.db
       .query("sessions")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", user._id))

@@ -18,7 +18,11 @@ New feedback requires a provider-activated session with settled, nonzero voice u
 
 Each URL or email preparation consumes one preparation; a user-requested retry consumes another. A duplicate request does not consume again. Workflow retries remain within the original preparation. Over-quota email is saved privately with a retry message, without starting paid research.
 
-Free allowances reset on the UTC calendar month. Paid allowances use the subscription billing period. A paid plan change within that period retains usage. Starting a new paid subscription purchases a new period. Per-account daily abuse limits remain, including ten voice starts and ten preparations. Free accounts also share a conservative daily budget of 200 reserved voice minutes, with no refund to that shared safety budget for early closure or failed startup; paid accounts are exempt. The overall service retains the existing daily ceilings of 100 voice starts and 100 research starts.
+Free allowances reset on the UTC calendar month. Paid allowances use the subscription billing period. A paid plan change within that period retains usage. Starting a new paid subscription purchases a new period. Per-account daily abuse limits remain, including ten voice starts and ten preparations, and the service keeps its daily ceiling of 100 research starts.
+
+Voice starts are counted separately from voice minutes. Start attempts are never refunded; minute capacity is. Paid accounts share the existing service-wide budget of 100 voice starts per day. Free accounts do not draw on it: each Free account has a small replenishing start budget (a token bucket holding four starts that refills at four per day, so a short burst is possible and then starts return gradually), and Free accounts together are limited to 120 starts per UTC day. Free accounts also share 200 minutes of reserved voice capacity per UTC day, kept as a per-day ledger. A start debits its full session length; when the session settles, the unused part is released back to the day that was debited, exactly once. A start that never activates releases all of its minutes but still counts as an attempt. Sessions that end after midnight UTC credit the day they started, never the new day. Reservations created before this ledger existed are settled without any credit.
+
+These limits raise the cost of abuse but do not remove it: signup is open, so many disposable accounts can still exhaust the shared Free start budget for a day. Paid accounts are unaffected by that, which is the purpose of the split.
 
 ## Stripe integration
 

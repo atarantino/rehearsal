@@ -6,6 +6,10 @@ import { requireUser } from "./users";
 import { limits } from "./limits";
 import { maxSeconds } from "../shared/types";
 
+const DAY = 86_400_000;
+export const FREE_DAILY_VOICE_MINUTES = 200;
+const utcDay = (now: number) => now - (now % DAY);
+
 async function findPeriod(
   ctx: QueryCtx | MutationCtx,
   ownerId: Id<"users">,
@@ -75,6 +79,27 @@ export async function consumePreparation(
   });
 }
 
+// Start attempts are bounded separately from minutes and never refunded, so
+// failed or abandoned starts cost attempts rather than shared capacity. Free
+// and paid accounts draw on separate service-wide attempt budgets.
+export async function limitVoiceStarts(ctx: MutationCtx, ownerId: Id<"users">) {
+  const entitlement = await getEntitlement(ctx, ownerId, Date.now());
+  if (entitlement.plan !== "free") {
+    await limits.limit(ctx, "globalVoice", { throws: true });
+    return;
+  }
+  const own = await limits.limit(ctx, "freeVoiceStarts", { key: ownerId });
+  if (!own.ok)
+    throw new PlanLimitError(
+      "Free accounts can start a few voice sessions a day; more become available gradually. Try again later or choose a paid plan.",
+    );
+  const shared = await limits.limit(ctx, "globalFreeVoiceStarts", {});
+  if (!shared.ok)
+    throw new PlanLimitError(
+      "Free voice practice has reached today's shared start limit. Try again tomorrow or choose a paid plan.",
+    );
+}
+
 export async function reserveVoice(ctx: MutationCtx, session: Doc<"sessions">) {
   const entitlement = await getEntitlement(ctx, session.ownerId, Date.now());
   const existing = await findPeriod(
@@ -92,17 +117,27 @@ export async function reserveVoice(ctx: MutationCtx, session: Doc<"sessions">) {
     throw new PlanLimitError(
       `This interview needs ${minutes} available voice minutes. Choose a shorter interview, upgrade, or wait for your next period.`,
     );
+  let freeDay: number | undefined;
   if (entitlement.plan === "free") {
-    // A conservative shared daily budget reserves the full session cap. Unlike
-    // the account allowance, unused capacity is not refunded into this safety
-    // limit, preventing repeated failed/short sessions from increasing exposure.
-    const budget = await limits.limit(ctx, "globalFreeVoiceMinutes", {
-      count: minutes,
-    });
-    if (!budget.ok)
+    // Shared Free capacity is a refundable per-UTC-day ledger of reserved
+    // minutes. Settlement releases unused minutes back to the day it debited.
+    freeDay = utcDay(Date.now());
+    const ledger = await ctx.db
+      .query("freeVoiceDays")
+      .withIndex("by_day", (q) => q.eq("day", freeDay!))
+      .unique();
+    const reserved = ledger?.reservedMinutes ?? 0;
+    if (reserved + minutes > FREE_DAILY_VOICE_MINUTES)
       throw new PlanLimitError(
         "Free voice practice has reached today's shared limit. Try again tomorrow or choose a paid plan.",
       );
+    if (ledger)
+      await ctx.db.patch(ledger._id, { reservedMinutes: reserved + minutes });
+    else
+      await ctx.db.insert("freeVoiceDays", {
+        day: freeDay,
+        reservedMinutes: minutes,
+      });
   }
   const period =
     existing ?? (await ensurePeriod(ctx, session.ownerId, entitlement));
@@ -118,6 +153,7 @@ export async function reserveVoice(ctx: MutationCtx, session: Doc<"sessions">) {
     sessionId: session._id,
     usagePeriodId: period._id,
     minutes,
+    freeDay,
   });
 }
 
@@ -156,6 +192,21 @@ export async function settleVoice(
     voiceMinutesUsed: period.voiceMinutesUsed + chargedMinutes,
   });
   await ctx.db.patch(reservation._id, { settledAt: now, chargedMinutes });
+  // Release unused shared Free capacity to the day that was debited. Legacy
+  // reservations without freeDay never credit; settledAt makes this exactly once.
+  if (reservation.freeDay !== undefined) {
+    const ledger = await ctx.db
+      .query("freeVoiceDays")
+      .withIndex("by_day", (q) => q.eq("day", reservation.freeDay!))
+      .unique();
+    if (ledger)
+      await ctx.db.patch(ledger._id, {
+        reservedMinutes: Math.max(
+          0,
+          ledger.reservedMinutes - (reservation.minutes - chargedMinutes),
+        ),
+      });
+  }
   return seconds;
 }
 

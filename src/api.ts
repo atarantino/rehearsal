@@ -1,6 +1,7 @@
 import { convex, cloudEnabled } from "./convex";
 import { api as backend } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { decodeError } from "./errors";
 async function cloudApi(
   path: string,
   body: any,
@@ -44,24 +45,7 @@ export async function api<T>(
     try {
       return (await cloudApi(path, body, method)) as T;
     } catch (e) {
-      const error = e as { data?: unknown; message?: string };
-      const details = error.data;
-      const planLimitMessage =
-        details !== null &&
-        typeof details === "object" &&
-        "code" in details &&
-        details.code === "PLAN_LIMIT" &&
-        "message" in details &&
-        typeof details.message === "string"
-          ? details.message
-          : undefined;
-      throw new Error(
-        planLimitMessage ??
-          (typeof error.data === "string"
-            ? error.data
-            : error.message?.split("Called by client")[0] ||
-              "The request failed. Please retry."),
-      );
+      throw new Error(decodeError(e).message);
     }
   }
   let r: Response;
