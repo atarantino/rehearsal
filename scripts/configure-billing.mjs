@@ -1,5 +1,5 @@
 // Idempotent catalog setup. Reads credentials without printing them.
-// node scripts/configure-billing.mjs --deployment=quick-starfish-327 [--live]
+// node scripts/configure-billing.mjs --deployment=quick-starfish-327 [--live] [--preserve-server-key]
 // --live must be explicitly requested; default uses Stripe test mode.
 import fs from "node:fs";
 import os from "node:os";
@@ -13,6 +13,19 @@ const deployment = process.argv
 if (!deployment || !/^[a-z0-9-]+$/.test(deployment))
   throw new Error("Pass --deployment=<Convex deployment name>.");
 const mode = live ? "live" : "test";
+const preserveServerKey = process.argv.includes("--preserve-server-key");
+if (preserveServerKey) {
+  const saved = spawnSync(
+    "npx",
+    ["convex", "env", "get", "STRIPE_SECRET_KEY", "--deployment", deployment],
+    { encoding: "utf8" },
+  );
+  if (
+    saved.status !== 0 ||
+    !new RegExp(`^(sk|rk)_${mode}_`).test(saved.stdout.trim())
+  )
+    throw new Error(`The deployment needs an existing ${mode} server key.`);
+}
 let key = process.env.STRIPE_SECRET_KEY;
 if (!key) {
   const config = fs.readFileSync(
@@ -190,7 +203,9 @@ if (!webhookSecret) {
       "Existing webhook signing secret is absent; restore it securely from Stripe before continuing.",
     );
 } else env("STRIPE_WEBHOOK_SECRET", webhookSecret);
-env("STRIPE_SECRET_KEY", key);
+if (preserveServerKey)
+  console.log("STRIPE_SECRET_KEY: existing server key preserved");
+else env("STRIPE_SECRET_KEY", key);
 env("STRIPE_PLUS_PRICE_ID", prices.plus);
 env("STRIPE_PRO_PRICE_ID", prices.pro);
 env("STRIPE_PORTAL_CONFIGURATION_ID", portal.id);

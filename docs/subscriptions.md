@@ -53,6 +53,8 @@ The configured development account is `acct_1StXDPQnSPdixoA6` (Tarantino Softwar
 
 The test setup uses a Stripe CLI credential, which expires 90 days after login. Replace it with a durable scoped server credential before live deployment. Do not copy test price IDs or webhook secrets into a live configuration. `--live` is an explicit setup-script switch; run it only after deciding to enable real billing. The setup script refuses to silently replace an existing price with a different amount or currency.
 
+When a restricted runtime key is already saved in the target deployment, add `--preserve-server-key` to configure the catalog and webhook using the setup credential without replacing that saved key. The script checks the saved key's mode before making changes. Verify that the runtime and setup credentials belong to the same Stripe account before running it.
+
 The webhook path is `/stripe/webhook`. It subscribes to checkout completion, customer changes, subscription changes, invoice payment success and failure. The endpoint and SDK are pinned to Stripe API `2026-08-26.dahlia`. Retried or out-of-order events trigger current-state reconciliation; revision fencing prevents an older request from overwriting a newer applied snapshot, and a superseded refresh re-fetches before returning.
 
 See [email routing](email-routing.md) for shared-inbox configuration and legacy compatibility. New fields are additive; existing dedicated inboxes and saved opportunities remain readable without a destructive migration.
