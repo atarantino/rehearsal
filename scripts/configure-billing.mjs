@@ -36,8 +36,10 @@ if (!key) {
     new RegExp(`^\\s*${mode}_mode_api_key\\s*=\\s*["']([^"'\\r\\n]+)["']`, "m"),
   )?.[1];
 }
-if (!key || !new RegExp(`^(sk|rk)_${mode}_`).test(key))
-  throw new Error(`A ${mode} Stripe credential is required.`);
+if (!key || key.includes("*") || !new RegExp(`^(sk|rk)_${mode}_`).test(key))
+  throw new Error(
+    `An unredacted ${mode} Stripe credential is required. CLI live credentials are stored in the OS keychain; provide the setup credential through STRIPE_SECRET_KEY.`,
+  );
 const stripe = new Stripe(key, { apiVersion: "2026-08-26.dahlia" });
 const account = await stripe.accounts.retrieve();
 const metadata = { app: "rehearsal", catalog: "monthly-v2" };
