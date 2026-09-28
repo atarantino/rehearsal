@@ -61,6 +61,33 @@ export function briefOf(config: SessionConfig): BriefLabel | null {
     return null;
   }
 }
+// A focused review is about its question; a mock review is about the role.
+function reviewTitle(record: PracticeSession) {
+  const role = briefOf(record.config)?.role || record.config.role;
+  return record.config.mode === "coached"
+    ? record.config.startingQuestion || record.question || role
+    : role;
+}
+function reviewContext(record: PracticeSession) {
+  const brief = briefOf(record.config);
+  if (record.config.mode === "mock") return brief ? `At ${brief.company}` : "";
+  return brief ? `${brief.role} at ${brief.company}` : record.config.role;
+}
+// Feedback often cites the same passage more than once; show it in full only once.
+function quoteRenderer() {
+  const shown = new Set<string>();
+  return (quote: string) => {
+    const key = quote.trim().replace(/\s+/g, " ").toLowerCase();
+    if (!shown.has(key)) {
+      shown.add(key);
+      return <blockquote>“{quote}”</blockquote>;
+    }
+    const words = quote.trim().split(/\s+/);
+    const excerpt =
+      words.length > 8 ? `${words.slice(0, 8).join(" ")}…` : quote.trim();
+    return <p className="quote-ref">Quoted earlier: “{excerpt}”</p>;
+  };
+}
 function Practicing({
   config,
   onChange,
@@ -359,6 +386,7 @@ export default function App() {
     }
   }
   const locked = view === "live" || reviewing;
+  const renderQuote = quoteRenderer();
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -926,17 +954,14 @@ export default function App() {
                       <span className="tag">Repeat attempt</span>
                     )}
                   </p>
-                  <h1>
-                    {record.config.mode === "coached" &&
-                    record.config.startingQuestion
-                      ? record.config.startingQuestion
-                      : briefOf(record.config)?.role || record.config.role}
-                  </h1>
+                  <h1>{reviewTitle(record)}</h1>
                   <p>
-                    {briefOf(record.config)
-                      ? `${briefOf(record.config)!.role} at ${briefOf(record.config)!.company}`
-                      : record.config.role}
-                    <span className="separator">·</span>
+                    {reviewContext(record) && (
+                      <>
+                        {reviewContext(record)}
+                        <span className="separator">·</span>
+                      </>
+                    )}
                     {clock(record.seconds)}
                     <span className="separator">·</span>
                     {new Date(record.createdAt).toLocaleDateString(undefined, {
@@ -1009,7 +1034,7 @@ export default function App() {
                       {record.feedback.strengths.map((v, i) => (
                         <article key={i}>
                           <h3>{v.title}</h3>
-                          <blockquote>“{v.quote}”</blockquote>
+                          {renderQuote(v.quote)}
                           <p>{v.detail}</p>
                         </article>
                       ))}
@@ -1031,7 +1056,7 @@ export default function App() {
                             <span>{i + 1}</span>
                             {v.title}
                           </h3>
-                          <blockquote>“{v.quote}”</blockquote>
+                          {renderQuote(v.quote)}
                           <p>{v.detail}</p>
                         </article>
                       ))}
@@ -1130,21 +1155,23 @@ export default function App() {
                     Next question
                     <ArrowRight size={17} />
                   </button>
-                  <span className="review-actions-note">
-                    Retries keep the same question and compare both attempts.
-                  </span>
                   <button className="text-button" onClick={newPractice}>
                     New practice
                   </button>
+                  <span className="review-actions-note">
+                    Retries keep the same question and compare both attempts.
+                  </span>
                 </div>
               )}
               <details className="saved-transcript">
                 <summary>
                   Read your transcript{" "}
                   <span>
-                    {record.fragments.length
-                      ? "Saved in your workspace"
-                      : "No speech captured"}
+                    {!record.fragments.length
+                      ? "No speech captured"
+                      : cloudEnabled
+                        ? "Saved in your workspace"
+                        : "Saved on this device"}
                     <ChevronDown size={16} />
                   </span>
                 </summary>

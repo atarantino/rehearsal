@@ -895,7 +895,9 @@ summary::-webkit-details-marker {
   margin-top: 16px;
 }
 .review-heading > .icon-button {
-  align-self: center;
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 28px;
 }
 .summary-card {
   background: var(--accent-tint);
@@ -920,6 +922,7 @@ summary::-webkit-details-marker {
 .feedback-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  align-items: start;
   gap: 20px;
 }
 .feedback-panel {
@@ -969,6 +972,12 @@ summary::-webkit-details-marker {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.65;
+}
+.feedback-panel .quote-ref {
+  margin: 12px 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
 }
 .feedback-panel article p {
   font-size: 12px;
@@ -2097,7 +2106,12 @@ summary::-webkit-details-marker {
   .practicing {
     flex-wrap: wrap;
   }
-  .review-heading h1,
+  .review-heading h1 {
+    font-size: 26px;
+  }
+  .review-heading {
+    gap: 8px;
+  }
   .history-heading h1 {
     font-size: 33px;
   }
