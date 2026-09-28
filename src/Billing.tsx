@@ -270,6 +270,16 @@ export function Billing() {
                       Written coaching after practice
                     </li>
                   </ul>
+                  {id === "free" && (
+                    <p className="billing-plan-description">
+                      <strong>Shared Free limit:</strong> Rehearsal funds $1 per
+                      day for preparation, written feedback, and AI follow-ups
+                      across all Free users. New text processing pauses when
+                      this budget is reached and becomes available again at
+                      00:00 UTC. Voice minutes have separate limits. Paid plans
+                      use separate capacity.
+                    </p>
+                  )}
                   <button
                     type="button"
                     className={id === "plus" ? "primary" : "secondary"}
@@ -307,9 +317,9 @@ export function Billing() {
             opportunity and builds your interview brief. Written feedback has a
             monthly processing limit of one generation attempt per included
             voice minute; retries count toward it. Large materials may need
-            shortening. Free access also has shared daily capacity limits. Live
-            follow-up reasoning has the same monthly attempt limit; voice
-            practice can continue with the available context when it is reached.
+            shortening. Live follow-up reasoning has the same monthly attempt
+            limit; voice practice can continue with the available context when
+            it is reached.
           </p>
         </>
       )}
