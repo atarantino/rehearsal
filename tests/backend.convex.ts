@@ -11,6 +11,16 @@ import { Webhook } from "svix";
 import { sampleFeedback } from "./fixtures";
 import { FirecrawlClient } from "@firecrawl/firecrawl-convex";
 const modules = import.meta.glob("../convex/**/*.ts");
+
+// Legacy behavioral tests inspect generation requests. Token admission itself
+// is exercised separately in cost-controls.convex.ts.
+function stubOpenAI(mock: (url: string, init: RequestInit) => unknown) {
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    if (url.endsWith("/responses/input_tokens"))
+      return new Response(JSON.stringify({ input_tokens: 1000 }));
+    return mock(url, init);
+  });
+}
 async function setup() {
   const t = convexTest(schema, modules);
   rateLimiter.register(t);
@@ -91,6 +101,7 @@ describe("voice review recovery", () => {
   function modelResult(value: unknown) {
     return new Response(
       JSON.stringify({
+        status: "completed",
         output: [
           { content: [{ type: "output_text", text: JSON.stringify(value) }] },
         ],
@@ -127,7 +138,7 @@ describe("voice review recovery", () => {
       .fn()
       .mockResolvedValueOnce(modelResult(bad))
       .mockResolvedValueOnce(modelResult(good));
-    vi.stubGlobal("fetch", fetchMock);
+    stubOpenAI(fetchMock);
     const reviewed = await a.action(api.voice.review, { id });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(reviewed.feedback?.candidateQuestionsFeedback?.quote).toBe(
@@ -153,7 +164,7 @@ describe("voice review recovery", () => {
     const fetchMock = vi
       .fn()
       .mockImplementation(() => Promise.resolve(modelResult(bad)));
-    vi.stubGlobal("fetch", fetchMock);
+    stubOpenAI(fetchMock);
     await expect(b.action(api.voice.review, { id })).rejects.toThrow(
       "Session not found",
     );
@@ -192,7 +203,7 @@ describe("voice review recovery", () => {
       .fn()
       .mockResolvedValueOnce(modelResult({ ...good, improvements: [] }))
       .mockResolvedValueOnce(modelResult(good));
-    vi.stubGlobal("fetch", fetchMock);
+    stubOpenAI(fetchMock);
     expect((await a.action(api.voice.review, { id })).feedback).toEqual(good);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -213,7 +224,11 @@ describe("voice review recovery", () => {
     const { a, id } = await endedSession();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(new Response("", { status: 429 })),
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response("", { status: 429, headers: { "retry-after": "10" } }),
+        ),
     );
     await expect(a.action(api.voice.review, { id })).rejects.toMatchObject({
       data: expect.stringContaining("usage limit"),
@@ -560,6 +575,7 @@ describe("preparation efficiency", () => {
         if (url.endsWith("/responses"))
           return new Response(
             JSON.stringify({
+              status: "completed",
               output: [
                 {
                   content: [
@@ -578,7 +594,7 @@ describe("preparation efficiency", () => {
           );
         throw new Error(`Unexpected provider request: ${url}`);
       });
-    vi.stubGlobal("fetch", fetchMock);
+    stubOpenAI(fetchMock);
     const researchBrief = await t.action(internal.research.writeBrief, {
       id,
       extracted: { ...extracted, preparation: longBrief.preparation },
@@ -620,9 +636,7 @@ describe("preparation efficiency", () => {
       )[1],
     );
     expect(direct.preparationBrief).toEqual(researchBrief);
-    expect(payload.delegation.responses.instructions).toContain(
-      JSON.stringify(researchBrief),
-    );
+    expect(payload.delegation).toEqual({ type: "client" });
     expect(payload.instructions).toContain("sourced focus areas");
     expect(payload.instructions).toContain("uncertainties as unconfirmed");
     expect(JSON.stringify(payload)).not.toContain("Forged client company");
@@ -811,11 +825,11 @@ describe("preparation efficiency", () => {
       role: "Senior Software Engineer",
       company: "Convex",
     };
-    vi.stubGlobal(
-      "fetch",
+    stubOpenAI(
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
+            status: "completed",
             output: [
               {
                 content: [
@@ -859,13 +873,14 @@ describe("preparation efficiency", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
+          status: "completed",
           output: [
             { content: [{ type: "output_text", text: JSON.stringify(brief) }] },
           ],
         }),
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubOpenAI(fetchMock);
     expect(
       await t.action(internal.research.writeBrief, {
         id,
@@ -891,6 +906,7 @@ describe("preparation efficiency", () => {
     fetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
+          status: "completed",
           output: [
             {
               content: [
@@ -942,6 +958,7 @@ describe("preparation efficiency", () => {
       async () =>
         new Response(
           JSON.stringify({
+            status: "completed",
             output: [
               {
                 content: [
@@ -952,7 +969,7 @@ describe("preparation efficiency", () => {
           }),
         ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubOpenAI(fetchMock);
     const result = await t.action(internal.research.writeBrief, {
       id,
       extracted,
@@ -1473,13 +1490,13 @@ describe("email prep attachments", () => {
       uncertainties: ["Company is unconfirmed."],
     };
     const inputs: Array<Record<string, unknown>> = [];
-    vi.stubGlobal(
-      "fetch",
+    stubOpenAI(
       vi.fn(async (_url: string, init: RequestInit) => {
         const body = JSON.parse(init.body as string);
         inputs.push(JSON.parse(body.input));
         return new Response(
           JSON.stringify({
+            status: "completed",
             output: [
               {
                 content: [

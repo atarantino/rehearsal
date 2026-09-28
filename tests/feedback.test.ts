@@ -116,3 +116,21 @@ test("quotes cannot come from assistant speech, setup, resume or a previous atte
     );
   }
 });
+
+test("bounded feedback preserves full current speech before falling back to labeled verbatim excerpts", async () => {
+  const { feedbackAlternatives, bytePrefix } =
+    await import("../shared/bounded-feedback.js");
+  const s = session("I led the launch. ".repeat(2000));
+  s.config.jobDescription = "😀".repeat(10000);
+  const original = structuredClone(s);
+  const [reduced, excerpts] = feedbackAlternatives(s);
+  assert.deepEqual(reduced.transcript, feedbackInput(s).transcript);
+  assert.equal(reduced.context.jobDescription.length, 1000);
+  assert.ok(new TextEncoder().encode(JSON.stringify(excerpts)).length < 9000);
+  assert.ok(s.fragments[0].delta.startsWith(excerpts.transcript[0].text));
+  assert.equal(excerpts.previous, null);
+  assert.match(excerpts.inputCoverage, /never assume missing speech/);
+  assert.deepEqual(s, original);
+  assert.equal(bytePrefix("😀a", 3), "");
+  assert.equal(bytePrefix("😀a", 4), "😀");
+});

@@ -1,9 +1,21 @@
-import { RateLimiter, HOUR, DAY } from "@convex-dev/rate-limiter";
+import { RateLimiter, HOUR, DAY, MINUTE } from "@convex-dev/rate-limiter";
 import { components } from "./_generated/api";
 export const limits = new RateLimiter(components.rateLimiter, {
   resume: { kind: "token bucket", rate: 30, period: HOUR, capacity: 30 },
   research: { kind: "fixed window", rate: 10, period: DAY },
   voice: { kind: "fixed window", rate: 10, period: DAY },
+  feedbackRequestsDaily: {
+    kind: "fixed window",
+    rate: 60,
+    period: DAY,
+    start: 0,
+  },
+  feedbackRequests: {
+    kind: "token bucket",
+    rate: 10,
+    period: MINUTE,
+    capacity: 10,
+  },
   feedback: { kind: "fixed window", rate: 25, period: DAY },
   inbox: { kind: "fixed window", rate: 3, period: HOUR },
   // Voice start attempts are non-refundable and separate from minute capacity.
@@ -14,6 +26,20 @@ export const limits = new RateLimiter(components.rateLimiter, {
   globalFreeVoiceStarts: {
     kind: "fixed window",
     rate: 120,
+    period: DAY,
+    start: 0,
+  },
+  globalFreeAiSpend: {
+    kind: "fixed window",
+    rate: 1_000_000,
+    period: DAY,
+    start: 0,
+  },
+  globalFreeResearch: { kind: "fixed window", rate: 20, period: DAY, start: 0 },
+  globalFreeFeedback: { kind: "fixed window", rate: 60, period: DAY, start: 0 },
+  globalPaidFeedback: {
+    kind: "fixed window",
+    rate: 500,
     period: DAY,
     start: 0,
   },

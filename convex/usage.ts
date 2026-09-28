@@ -22,7 +22,7 @@ async function findPeriod(
     )
     .unique();
 }
-async function ensurePeriod(
+export async function ensurePeriod(
   ctx: MutationCtx,
   ownerId: Id<"users">,
   entitlement: Awaited<ReturnType<typeof getEntitlement>>,
