@@ -413,7 +413,8 @@ export function PracticeResume({
       </select>
       {mode !== "none" && data && !data.defaultText && (
         <p className="muted">
-          No default saved yet. You can add one above or practice without it.
+          No default saved yet. Add one in Your resume below, or practice
+          without it.
         </p>
       )}
     </div>

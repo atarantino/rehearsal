@@ -538,7 +538,7 @@ summary::-webkit-details-marker {
   background: var(--accent);
 }
 .mode-card strong {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   display: block;
   margin-bottom: 7px;
@@ -1709,6 +1709,9 @@ summary::-webkit-details-marker {
   flex-wrap: wrap;
   gap: 12px;
 }
+.resume-card .resume-actions > span {
+  font-size: 14px;
+}
 .resume-heading h2 {
   font-size: 18px;
   margin: 0;
@@ -2084,9 +2087,6 @@ summary::-webkit-details-marker {
   }
   .mode-card {
     padding: 15px 12px;
-  }
-  .mode-card strong {
-    font-size: 12px;
   }
   .duration svg {
     width: 11px;
