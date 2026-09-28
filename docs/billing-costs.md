@@ -26,9 +26,9 @@ The ordinary-use planning estimate remains **$4.62 OpenAI cost for Plus** and **
 All four use GPT-5.6 Terra, low reasoning, standard service tier. Output limits include reasoning tokens. Incomplete output can cost money without producing useful feedback.
 
 - Live reasoning uses client delegation routed through an authenticated server action. The browser supplies a delegation ID; the server owns the prompt and model. Repeated IDs are deduplicated. Maximum calls per interview: six coached, twenty mock. New tasks suppress stale browser replies.
-- Monthly live reasoning and feedback each have a separate processing-attempt budget equal to the plan's included voice minutes: 10 / 60 / 150. Live reasoning requests include rejected attempts. Feedback only consumes a generation allowance after token and shared-capacity admission; uncertain paid outcomes retain the charge. Deleting a session does not restore capacity.
+- Monthly live reasoning and feedback each have a separate processing-attempt budget equal to the plan's included voice minutes: 10 / 60 / 150. Monthly reasoning and feedback allowances are charged only after token and shared-capacity admission; uncertain paid outcomes retain the charge. Per-interview reasoning attempts include rejected requests to bound repeated token-count work. Deleting a session does not restore capacity.
 - Written feedback retains three admitted review claims per session, up to two generations each, with the monthly budget taking precedence. A completed review is reused.
-- Preparation AI steps have no automatic retries. Unchanged input that still exceeds the cap is blocked from manual retry until an attachment is removed; a shorter source can be submitted separately. A user-requested preparation retry consumes another preparation allowance.
+- Preparation AI steps have no automatic retries. Unchanged input that still exceeds the cap is blocked from manual retry until an attachment is removed; a shorter source can be submitted separately. A user-requested preparation retry consumes another preparation allowance unless shared capacity denied the run before any model generation was admitted; that retry reuses its existing allowance. Research request rate limits still apply.
 - Paid generation and voice creation are not automatically replayed after network failures. Read/count requests may retry once for short 429/503 delays; longer `Retry-After` values are surfaced. Attachment import retries remain separately bounded.
 - Funding exhaustion is reported distinctly from request-rate throttling, with safe error codes and request IDs logged.
 
@@ -80,7 +80,7 @@ This is a scenario for one full allowance period, not a guaranteed total bill. I
 
 ## Operator checks
 
-`aiRequests` records owner, operation, session/preparation, model, counted input, reservation, actual input/cache/output/reasoning categories, provider IDs and terminal state. It stores no input prompts or transcripts; a completed live question is retained for deduplication. `unknown` and old `pending` records must not be treated as free requests.
+`aiRequests` records owner, operation, session/preparation, model, counted input, reservation, actual input/cache/output/reasoning categories, provider IDs and terminal state. It stores no input prompts or transcripts; a completed live question is retained for deduplication and scrubbed asynchronously on session deletion; late responses cannot restore it. `unknown` and old `pending` records must not be treated as free requests.
 
 Use internal queries with the intended deployment selected:
 
@@ -95,12 +95,11 @@ Convex, Firecrawl, AgentMail, payment fees, hosting, support, refunds and taxes 
 
 ## Validation for this change
 
-- Production build and TypeScript checks passed; the Convex development deployment accepted the schema and functions.
-- 36 unit checks, 107 backend/client checks and 27 browser checks passed. Coverage includes token admission, concurrent requests, deduplication, monthly and Free budgets, failed/unknown responses, transcript grace and cleanup failures.
-- A real development voice attempt reported 35 provider seconds and confirmed closure. Its feedback completed with 1,083 input tokens and 711 output tokens persisted. A separate small request confirmed the token-count and generation endpoints accept the intended request shape. No natural live delegation occurred during that short attempt; delegation event routing and limits are covered by automated checks.
-- The earlier Opus 5.5 pricing review completed. The follow-up patch review could not run because Claude's session limit was exhausted; no independent Opus approval of this patch is claimed.
-- Production was not deployed, and financial account settings were not changed.
+- Production build and both TypeScript checks passed; Convex development accepted the schema and functions.
+- 37 unit checks, 122 backend/client checks and 27 browser checks passed. Coverage includes atomic admission, concurrent requests, deduplication, monthly and Free budgets, denied-preparation retry, failed/unknown responses, transcript recovery, deletion scrubbing, expiry rescheduling and monitor renewal/backoff.
+- The real token counter measured a legal long-feedback fixture at 14,449 tokens. Reducing optional context retained its entire current transcript at 5,730 tokens, below the unchanged 12,000-token cap. A final explicit transcript-excerpt variant counted 1,595 tokens.
+- A real development voice test completed at 263 provider seconds after monitor renewal. A provider-created client delegation completed (221 input / 98 output tokens), and the provider acknowledged its commentary response. The session closed normally and feedback completed (1,905 input / 809 output tokens), with completed status and closed cleanup persisted. The test requested delegation explicitly; it was not a natural 20-minute mock conversation.
+- Independent Claude Opus 5.5 review of frozen commit 4422e21 verified the original six fixes and arithmetic. Follow-up changes address its capacity accounting, retained question text, preparation excerpt quality and cleanup findings. Final review evidence is retained separately with immutable snapshots.
+- Production was not deployed; prices, included allowances and financial account settings were not changed.
 
-### Follow-up regression validation
-
-The review fixes preserve attempts on capacity denial, accept delayed transcript recovery before review, reconcile confirmed normal completion after provider closure, and retain provider startup metadata. Preparation size errors remain actionable and cannot trigger unchanged retries. The real token counter measured a legal long-feedback fixture at 14,449 tokens; reducing optional context retained its entire current transcript at 5,730 tokens, below the unchanged 12,000-token cap.
+The live test verifies one coached session and one monitor renewal. A full mock interview quality/latency soak, provider outage behavior and long-term cost measurements remain pilot monitoring work. Already-closed HTTP errors are not treated as proof of closure without documented provider semantics; authenticated provider closure does stop further retries.

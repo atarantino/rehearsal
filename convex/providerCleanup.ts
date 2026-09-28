@@ -85,3 +85,15 @@ export const start = internalMutation({
     return null;
   },
 });
+
+export const isClosed = internalQuery({
+  args: { liveId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { liveId }) =>
+    (
+      await ctx.db
+        .query("providerClosures")
+        .withIndex("by_liveId", (q) => q.eq("liveId", liveId))
+        .unique()
+    )?.state === "closed",
+});

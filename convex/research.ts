@@ -60,6 +60,18 @@ export const extract = internalAction({
         {
           alternatives: [
             {
+              text: bytePrefix(input, 8000),
+              sourceUrl: o.kind === "url" ? o.input : null,
+              attachments: o.attachments
+                ?.filter((a) => a.status === "imported")
+                .map((a) => ({
+                  filename: bytePrefix(a.filename, 120),
+                  text: bytePrefix(a.text ?? "", 2500),
+                })),
+              inputCoverage:
+                "Source excerpts only. Keep omitted or unsupported facts unknown.",
+            },
+            {
               text: bytePrefix(input, 3000),
               sourceUrl: o.kind === "url" ? o.input : null,
               attachments: o.attachments
@@ -206,6 +218,18 @@ export const writeBrief = internalAction({
                 sources: sources.map((s) => ({
                   ...s,
                   title: bytePrefix(s.title, 120),
+                  text: bytePrefix(s.text, 4000),
+                })),
+                invitation:
+                  o.kind === "email" ? bytePrefix(o.input, 8000) : null,
+                inputCoverage:
+                  "Source excerpts only. State this limitation in uncertainties and keep unsupported facts unknown.",
+              },
+              {
+                extracted: details,
+                sources: sources.map((s) => ({
+                  ...s,
+                  title: bytePrefix(s.title, 120),
                   text: bytePrefix(s.text, 600),
                 })),
                 invitation:
@@ -241,13 +265,10 @@ async function withPreparationError<T>(
     return await run();
   } catch (error) {
     if (error instanceof ConvexError && typeof error.data === "string")
-      await ctx.runMutation(internal.preparation.update, {
+      await ctx.runMutation(internal.preparation.recordAiFailure, {
         id,
-        status: "failed",
-        error: error.data,
-        inputTooLarge:
-          error instanceof OpenAIError &&
-          error.code === "input_budget_exceeded",
+        message: error.data,
+        code: error instanceof OpenAIError ? error.code : undefined,
       });
     throw error;
   }

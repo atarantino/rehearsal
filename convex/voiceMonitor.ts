@@ -18,6 +18,7 @@ export const watch = internalAction({
     if (!s || s.liveId !== liveId || !env.OPENAI_API_KEY) return null;
     let providerClosed = false;
     let failed = false;
+    let renewal = false;
     let writes = Promise.resolve();
     await new Promise<void>((resolve) => {
       const ws = new WebSocket(
@@ -32,7 +33,10 @@ export const watch = internalAction({
         ws.terminate();
         resolve();
       };
-      const timer = setTimeout(finish, 240000);
+      const timer = setTimeout(() => {
+        renewal = true;
+        finish();
+      }, 240000);
       ws.on("message", (data) => {
         try {
           const event = JSON.parse(data.toString());
@@ -76,17 +80,24 @@ export const watch = internalAction({
         finish();
       });
       ws.on("close", () => {
+        if (!providerClosed && !renewal) failed = true;
         clearTimeout(timer);
         resolve();
       });
     });
     await writes;
     const current = await ctx.runQuery(internal.sessions.load, { id });
-    if (!providerClosed && current && !current.record.endedAt && attempt < 8) {
+    if (
+      !providerClosed &&
+      current &&
+      !current.record.endedAt &&
+      Date.now() < current.expiresAt + 30000 &&
+      (!failed || attempt < 8)
+    ) {
       await ctx.scheduler.runAfter(
-        failed ? 5000 : 0,
+        failed ? Math.min(60000, 5000 * 2 ** attempt) : 0,
         internal.voiceMonitor.watch,
-        { id, liveId, attempt: attempt + 1 },
+        { id, liveId, attempt: failed ? attempt + 1 : 0 },
       );
     }
     if (!providerClosed && failed)

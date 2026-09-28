@@ -1,9 +1,15 @@
-import { RateLimiter, HOUR, DAY } from "@convex-dev/rate-limiter";
+import { RateLimiter, HOUR, DAY, MINUTE } from "@convex-dev/rate-limiter";
 import { components } from "./_generated/api";
 export const limits = new RateLimiter(components.rateLimiter, {
   resume: { kind: "token bucket", rate: 30, period: HOUR, capacity: 30 },
   research: { kind: "fixed window", rate: 10, period: DAY },
   voice: { kind: "fixed window", rate: 10, period: DAY },
+  feedbackRequests: {
+    kind: "token bucket",
+    rate: 10,
+    period: MINUTE,
+    capacity: 10,
+  },
   feedback: { kind: "fixed window", rate: 25, period: DAY },
   inbox: { kind: "fixed window", rate: 3, period: HOUR },
   // Voice start attempts are non-refundable and separate from minute capacity.

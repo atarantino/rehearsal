@@ -276,8 +276,10 @@ export function Billing() {
                       day for preparation, written feedback, and AI follow-ups
                       across all Free users. New text processing pauses when
                       this budget is reached and becomes available again at
-                      00:00 UTC. Voice minutes have separate limits. Paid plans
-                      use separate capacity.
+                      00:00 UTC. If capacity blocks preparation before
+                      generation starts, retrying it does not use another
+                      preparation. Voice minutes have separate limits. Paid
+                      plans use separate capacity.
                     </p>
                   )}
                   <button

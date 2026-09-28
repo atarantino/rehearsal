@@ -149,8 +149,14 @@ export const expire = internalAction({
       !s.record.endedAt &&
       s.activatedAt !== undefined &&
       Date.now() < s.expiresAt
-    )
+    ) {
+      await ctx.scheduler.runAfter(
+        s.expiresAt - Date.now(),
+        internal.voice.expire,
+        { id },
+      );
       return null;
+    }
     if (s.liveId) {
       try {
         await closeProvider(ctx, s.ownerId, s.liveId);
@@ -365,6 +371,7 @@ async function closeProvider(
   ownerId: Id<"users">,
   liveId: string,
 ) {
+  if (await ctx.runQuery(internal.providerCleanup.isClosed, { liveId })) return;
   try {
     await openaiRequest(
       `/live/sessions/${encodeURIComponent(liveId)}/hangup`,

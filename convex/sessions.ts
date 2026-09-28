@@ -300,7 +300,9 @@ export const finalize = mutation({
       args.confirmed &&
       args.reason === "close_requested" &&
       s.record.status === "partial" &&
-      s.record.closeReason === "provider_closed" &&
+      ["provider_closed", "close_requested"].includes(
+        s.record.closeReason ?? "",
+      ) &&
       s.feedbackState === "idle"
     ) {
       await ctx.db.patch(s._id, {
@@ -368,7 +370,10 @@ export const claimFeedback = internalMutation({
       throw new ConvexError(
         "Feedback could not be generated after three attempts. Your transcript is saved; start a new interview to try again.",
       );
-    await limits.limit(ctx, "feedback", { key: s.ownerId, throws: true });
+    await limits.limit(ctx, "feedbackRequests", {
+      key: s.ownerId,
+      throws: true,
+    });
     const claim = Math.max(Date.now(), (s.feedbackStartedAt ?? 0) + 1);
     await ctx.db.patch(id, {
       feedbackState: "running",
@@ -418,6 +423,9 @@ export const remove = mutation({
         ownerId: s.ownerId,
       });
     await ctx.db.delete(id);
+    await ctx.scheduler.runAfter(0, internal.aiUsage.purgeResults, {
+      sessionId: id,
+    });
     await ctx.scheduler.runAfter(0, internal.sessions.purgeFragments, { id });
     return null;
   },

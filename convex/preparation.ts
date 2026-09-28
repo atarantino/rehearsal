@@ -171,7 +171,7 @@ export const retry = mutation({
       throw new ConvexError(
         "Remove an attachment before retrying, or create a preparation from a shorter source. This retry did not use an allowance.",
       );
-    await consumePreparation(ctx, user._id);
+    if (!o.retryWithoutCharge) await consumePreparation(ctx, user._id);
     await limits.limit(ctx, "research", { key: user._id, throws: true });
     await limits.limit(
       ctx,
@@ -183,7 +183,13 @@ export const retry = mutation({
     const workflowId = await workflow.start(ctx, internal.workflows.prepare, {
       id,
     });
-    await ctx.db.patch(id, { status: "queued", error: undefined, workflowId });
+    await ctx.db.patch(id, {
+      status: "queued",
+      error: undefined,
+      workflowId,
+      generationStarted: false,
+      retryWithoutCharge: undefined,
+    });
     return null;
   },
 });
@@ -221,11 +227,31 @@ export const fail = internalMutation({
   returns: v.null(),
   handler: async (ctx, { id }) => {
     const o = await ctx.db.get(id);
-    if (o && !(o.status === "failed" && o.error))
+    if (o)
       await ctx.db.patch(id, {
         status: "failed",
         error:
+          o.error ??
           "Preparation could not finish. Check the source URL or try again shortly.",
+      });
+    return null;
+  },
+});
+
+export const recordAiFailure = internalMutation({
+  args: {
+    id: v.id("opportunities"),
+    message: v.string(),
+    code: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { id, message, code }) => {
+    const o = await ctx.db.get(id);
+    if (o)
+      await ctx.db.patch(id, {
+        error: message,
+        inputTooLarge: code === "input_budget_exceeded",
+        retryWithoutCharge: code === "capacity_denied" && !o.generationStarted,
       });
     return null;
   },

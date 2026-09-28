@@ -192,7 +192,15 @@ export async function structured<T>(
       savedResult = JSON.stringify(parsed);
     await finish("completed");
     return { value: parsed, inputVariant };
-  } catch (error) {
+  } catch (caught) {
+    const data = caught instanceof ConvexError ? caught.data : undefined;
+    const error =
+      data &&
+      typeof data === "object" &&
+      data.code === "capacity_denied" &&
+      typeof data.message === "string"
+        ? new OpenAIError(data.message, data.code)
+        : caught;
     await finish(
       !sent
         ? "rejected"

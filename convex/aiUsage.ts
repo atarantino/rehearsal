@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import schema from "./schema";
+import { internal } from "./_generated/api";
 import { AI_MODEL, AI_POLICY, delegationLimit } from "../shared/cost-controls";
 import { getEntitlement } from "./entitlements";
 import { ensurePeriod } from "./usage";
@@ -53,9 +54,6 @@ export const begin = internalMutation({
           throw new ConvexError(
             "Live reasoning processing limit reached for this period.",
           );
-        await ctx.db.patch(period._id, {
-          delegationCalls: (period.delegationCalls ?? 0) + 1,
-        });
         await ctx.db.patch(s._id, {
           delegationCalls: (s.delegationCalls ?? 0) + 1,
         });
@@ -106,8 +104,15 @@ export const finish = internalMutation({
   returns: v.null(),
   handler: async (ctx, { id, values }) => {
     const row = await ctx.db.get(id);
-    if (row?.state === "pending")
-      await ctx.db.patch(id, { ...values, finishedAt: Date.now() });
+    if (row?.state === "pending") {
+      const session = row.sessionId ? await ctx.db.get(row.sessionId) : null;
+      await ctx.db.patch(id, {
+        ...values,
+        // A late completion must not restore personal text after deletion/close.
+        result: session && !session.record.endedAt ? values.result : undefined,
+        finishedAt: Date.now(),
+      });
+    }
     return null;
   },
 });
@@ -150,9 +155,29 @@ export const admitTokens = internalMutation({
         count: cost,
       });
       if (!allowed.ok)
+        throw new ConvexError({
+          code: "capacity_denied",
+          message:
+            "Free processing has reached today's shared capacity. Please try again tomorrow.",
+        });
+    }
+    if (request.operation === "delegation") {
+      const period = await ensurePeriod(ctx, request.ownerId, entitlement);
+      if ((period.delegationCalls ?? 0) >= entitlement.voiceMinutes)
         throw new ConvexError(
-          "Free processing has reached today's shared capacity. Please try again tomorrow.",
+          "Live reasoning processing limit reached for this period.",
         );
+      await ctx.db.patch(period._id, {
+        delegationCalls: (period.delegationCalls ?? 0) + 1,
+      });
+    }
+    if (
+      (request.operation === "extraction" || request.operation === "brief") &&
+      request.opportunityId
+    ) {
+      const o = await ctx.db.get(request.opportunityId);
+      if (!o) throw new ConvexError("Preparation not found.");
+      await ctx.db.patch(o._id, { generationStarted: true });
     }
     // Charge feedback only at admission, atomically with shared spend capacity.
     // A denied request rolls back every limiter and counter in this mutation.
@@ -170,6 +195,11 @@ export const admitTokens = internalMutation({
         throw new ConvexError(
           "Feedback could not be generated after three attempts.",
         );
+      if (first)
+        await limits.limit(ctx, "feedback", {
+          key: request.ownerId,
+          throws: true,
+        });
       const period = await ensurePeriod(ctx, request.ownerId, entitlement);
       if ((period.feedbackCalls ?? 0) >= entitlement.voiceMinutes)
         throw new ConvexError(
@@ -184,7 +214,10 @@ export const admitTokens = internalMutation({
       );
       if (!allowed.ok)
         throw new ConvexError(
-          "Written feedback has reached today's shared capacity. Please try again tomorrow; this did not use a review attempt.",
+          "Written feedback has reached today's shared capacity. Please try again tomorrow." +
+            (first
+              ? " This did not use a review attempt."
+              : " The earlier generation used one review attempt."),
         );
       await ctx.db.patch(period._id, {
         feedbackCalls: (period.feedbackCalls ?? 0) + 1,
@@ -199,6 +232,29 @@ export const admitTokens = internalMutation({
       countedInputTokens: inputTokens,
       reservedCostMicros: cost,
     });
+    return null;
+  },
+});
+
+// Keep accounting rows, but remove generated personal text after session deletion.
+export const purgeResults = internalMutation({
+  args: { sessionId: v.id("sessions"), cursor: v.optional(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, { sessionId, cursor }) => {
+    const page = await ctx.db
+      .query("aiRequests")
+      .withIndex("by_sessionId_and_delegationId", (q) =>
+        q.eq("sessionId", sessionId),
+      )
+      .paginate({ numItems: 100, cursor: cursor ?? null });
+    for (const row of page.page)
+      if (row.result !== undefined)
+        await ctx.db.patch(row._id, { result: undefined });
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(0, internal.aiUsage.purgeResults, {
+        sessionId,
+        cursor: page.continueCursor,
+      });
     return null;
   },
 });

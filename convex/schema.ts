@@ -162,6 +162,8 @@ export default defineSchema({
     brief: v.optional(brief),
     error: v.optional(v.string()),
     inputTooLarge: v.optional(v.boolean()),
+    generationStarted: v.optional(v.boolean()),
+    retryWithoutCharge: v.optional(v.boolean()),
     workflowId: v.optional(v.string()),
     inboxId: v.optional(v.string()),
     inboxRecordId: v.optional(v.id("inboxes")),

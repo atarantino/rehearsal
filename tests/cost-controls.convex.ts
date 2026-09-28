@@ -7,6 +7,7 @@ import { api, internal } from "../convex/_generated/api";
 import { AI_POLICY } from "../shared/cost-controls";
 import { limits } from "../convex/limits";
 import { workflow } from "../convex/workflows";
+import { enqueue } from "../convex/preparation";
 const modules = import.meta.glob("../convex/**/*.ts");
 const config = {
   mode: "coached" as const,
@@ -509,27 +510,30 @@ it("rejects stale feedback claims before reserving paid capacity", async () => {
   ).rejects.toThrow("no longer running");
   expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackAttempts ?? 0).toBe(0);
 });
-it("recognizes confirmed normal completion after provider closure without changing settled usage", async () => {
-  const { t, a, id } = await setup();
-  vi.setSystemTime(Date.now() + 10000);
-  await t.mutation(internal.sessions.markClosed, {
-    id,
-    reason: "provider_closed",
-  });
-  const before = await t.run((ctx) => ctx.db.get(id));
-  await a.mutation(api.sessions.finalize, {
-    id,
-    confirmed: true,
-    reason: "close_requested",
-  });
-  const after = await t.run((ctx) => ctx.db.get(id));
-  expect(after?.record).toMatchObject({
-    status: "completed",
-    closeReason: "close_requested",
-    endedAt: before?.record.endedAt,
-  });
-  expect(after?.record.seconds).toEqual(before?.record.seconds);
-});
+it.each(["provider_closed", "close_requested"])(
+  "recognizes confirmed normal completion after %s without changing settled usage",
+  async (reason) => {
+    const { t, a, id } = await setup();
+    vi.setSystemTime(Date.now() + 10000);
+    await t.mutation(internal.sessions.markClosed, {
+      id,
+      reason,
+    });
+    const before = await t.run((ctx) => ctx.db.get(id));
+    await a.mutation(api.sessions.finalize, {
+      id,
+      confirmed: true,
+      reason: "close_requested",
+    });
+    const after = await t.run((ctx) => ctx.db.get(id));
+    expect(after?.record).toMatchObject({
+      status: "completed",
+      closeReason: "close_requested",
+      endedAt: before?.record.endedAt,
+    });
+    expect(after?.record.seconds).toEqual(before?.record.seconds);
+  },
+);
 it("retains a provider startup request ID when a later failure supplies no metadata", async () => {
   const { t, id } = await setup();
   await t.mutation(internal.providerCleanup.start, {
@@ -577,7 +581,7 @@ it("recounts reduced preparation inputs, preserves size errors, and blocks uncha
     if (url.endsWith("/input_tokens"))
       return new Response(
         JSON.stringify({
-          input_tokens: body.input.length > 10000 ? 13000 : 2000,
+          input_tokens: body.input.length > 12000 ? 13000 : 2000,
         }),
       );
     return new Response(
@@ -690,4 +694,196 @@ it("labels transcript excerpt feedback and charges only the admitted generation"
     { inputVariant: 2, state: "completed" },
   ]);
   expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackAttempts).toBe(1);
+});
+
+it("keeps monthly reasoning capacity after denied requests while bounding session attempts", async () => {
+  const { t, a, id } = await setup();
+  await t.run((ctx) =>
+    limits.limit(ctx, "globalFreeAiSpend", { count: 1_000_000, throws: true }),
+  );
+  const fetch = provider();
+  for (let n = 0; n < 6; n++)
+    await expect(
+      a.action(api.voice.delegate, { id, delegationId: `denied-${n}` }),
+    ).rejects.toThrow("shared capacity");
+  expect(
+    (await t.run((ctx) => ctx.db.query("usagePeriods").first()))
+      ?.delegationCalls ?? 0,
+  ).toBe(0);
+  await expect(
+    a.action(api.voice.delegate, { id, delegationId: "overflow" }),
+  ).rejects.toThrow("allowance reached");
+  expect(fetch).toHaveBeenCalledTimes(6);
+});
+it("retries capacity-denied preparation without another allowance until a generation is admitted", async () => {
+  const { t, a, ownerId } = await setup();
+  vi.spyOn(workflow, "start").mockResolvedValue("wf" as never);
+  const id = await t.run((ctx) =>
+    enqueue(ctx, {
+      ownerId,
+      requestId: "capacity-prep",
+      input: "Engineer at Example",
+      kind: "email",
+    }),
+  );
+  await t.run((ctx) =>
+    limits.limit(ctx, "globalFreeAiSpend", { count: 1_000_000, throws: true }),
+  );
+  provider();
+  for (let n = 0; n < 3; n++) {
+    await expect(t.action(internal.research.extract, { id })).rejects.toThrow(
+      "shared capacity",
+    );
+    // The workflow still owns this run until it transitions to failed.
+    expect((await t.query(internal.preparation.load, { id })).status).not.toBe(
+      "failed",
+    );
+    await t.mutation(internal.preparation.fail, { id });
+    expect(
+      (await t.query(internal.preparation.load, { id })).retryWithoutCharge,
+    ).toBe(true);
+    await a.mutation(api.preparation.retry, { id });
+  }
+  expect(
+    (await t.run((ctx) => ctx.db.query("usagePeriods").first()))
+      ?.preparationsUsed,
+  ).toBe(1);
+  vi.setSystemTime(Date.now() + 86400000);
+  const request = await t.mutation(internal.aiUsage.begin, {
+    ownerId,
+    opportunityId: id,
+    operation: "extraction",
+  });
+  await t.mutation(internal.aiUsage.admitTokens, {
+    id: request.id,
+    inputTokens: 100,
+  });
+  await t.mutation(internal.preparation.recordAiFailure, {
+    id,
+    message: "later capacity denial",
+    code: "capacity_denied",
+  });
+  await t.mutation(internal.preparation.fail, { id });
+  expect(
+    (await t.query(internal.preparation.load, { id })).retryWithoutCharge,
+  ).toBe(false);
+  await a.mutation(api.preparation.retry, { id });
+  expect(
+    (await t.run((ctx) => ctx.db.query("usagePeriods").first()))
+      ?.preparationsUsed,
+  ).toBe(2);
+});
+it("scrubs generated personal text after deletion and prevents a late response restoring it", async () => {
+  const { t, a, ownerId, id } = await setup();
+  provider();
+  await a.action(api.voice.delegate, { id, delegationId: "done" });
+  const pending = await t.mutation(internal.aiUsage.begin, {
+    ownerId,
+    sessionId: id,
+    operation: "delegation",
+    delegationId: "late",
+  });
+  await t.mutation(internal.sessions.markClosed, { id, reason: "done" });
+  await a.mutation(api.sessions.remove, { id });
+  await t.mutation(internal.aiUsage.purgeResults, { sessionId: id });
+  await t.mutation(internal.aiUsage.finish, {
+    id: pending.id,
+    values: { state: "completed", result: '{"question":"Private employer?"}' },
+  });
+  const rows = await t.query(internal.aiUsage.recent, { ownerId });
+  expect(rows.every((row) => row.result === undefined)).toBe(true);
+  expect(rows.some((row) => row.inputTokens === 1000)).toBe(true);
+});
+it("reschedules an early expiry and hangs up at the actual activation deadline", async () => {
+  const { t, id } = await setup();
+  const s = (await t.run((ctx) => ctx.db.get(id)))!;
+  vi.setSystemTime(s.expiresAt - 15000);
+  const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetch);
+  await t.action(internal.voice.expire, { id });
+  expect(fetch).not.toHaveBeenCalled();
+  const jobs = await t.run((ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  );
+  expect(jobs.some((j) => j.scheduledTime === s.expiresAt)).toBe(true);
+  vi.setSystemTime(s.expiresAt);
+  await t.action(internal.voice.expire, { id });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect((await t.run((ctx) => ctx.db.get(id)))?.record.endedAt).toBeTruthy();
+  await t.action(internal.voice.expire, { id });
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("uses an intermediate preparation excerpt and labels the resulting brief", async () => {
+  const { t, ownerId } = await setup();
+  const id = await t.run((ctx) =>
+    ctx.db.insert("opportunities", {
+      ownerId,
+      requestId: "brief-excerpt",
+      kind: "email",
+      input: "invitation ".repeat(1200),
+      status: "writing",
+      sources: [],
+      receivedAt: Date.now(),
+    }),
+  );
+  const extracted = {
+    role: "Engineer",
+    company: "Example",
+    interviewDate: null,
+    preparation: [],
+    jobUrl: null,
+    jobSource: null,
+  };
+  const sources = [
+    {
+      url: "https://example.com/job",
+      title: "Job",
+      text: "details ".repeat(2000),
+    },
+  ];
+  const brief = {
+    role: "Engineer",
+    company: "Example",
+    interviewDate: null,
+    preparation: [],
+    summary: "A sourced brief.",
+    focusAreas: [],
+    questions: ["What did you build?"],
+    uncertainties: [],
+  };
+  let counts = 0;
+  const fetch = vi.fn(
+    async (url: string, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify(
+          url.endsWith("/input_tokens")
+            ? { input_tokens: ++counts === 1 ? 21000 : 8000 }
+            : {
+                id: "response",
+                status: "completed",
+                output: [
+                  {
+                    content: [
+                      { type: "output_text", text: JSON.stringify(brief) },
+                    ],
+                  },
+                ],
+              },
+        ),
+      ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const result = await t.action(internal.research.writeBrief, {
+    id,
+    extracted,
+    sources,
+  });
+  expect(result.uncertainties[0]).toContain("uses excerpts");
+  const body = JSON.parse(fetch.mock.calls[2][1]!.body as string);
+  const input = JSON.parse(body.input);
+  expect(input.sources[0].text).toHaveLength(4000);
+  expect(body.input).toBe(
+    JSON.parse(fetch.mock.calls[1][1]!.body as string).input,
+  );
 });
