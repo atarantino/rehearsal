@@ -15,7 +15,7 @@ Built for the [Convex All Gas Hackathon](https://www.convex.dev/hackathons/all-g
 - **OpenAI** conducts spoken interviews with `gpt-live-1`, using `gpt-5.6-terra` for delegated reasoning and written coaching.
 - **Convex** stores accounts, opportunities, transcripts, feedback, and retry relationships. Durable workflows show progress live; scheduled functions close abandoned voice sessions; rate limits bound paid work.
 
-Passkey signup is open without an invitation. Focused practice covers one interview question with up to two follow-ups and lasts up to five minutes per attempt; mock interviews have a twenty-minute maximum. Feedback quotes must match current user speech exactly. Unsupported numeric outline claims are rejected. A retry keeps the question and compares attempts.
+Google and passkey signup are open without an invitation. Use the same sign-in method to return to your workspace; Google and passkey accounts are separate. Focused practice covers one interview question with up to two follow-ups and lasts up to five minutes per attempt; mock interviews have a twenty-minute maximum. Feedback quotes must match current user speech exactly. Unsupported numeric outline claims are rejected. A retry keeps the question and compares attempts.
 
 ## Mock interview flow
 
@@ -71,6 +71,9 @@ The original personal Express app with local JSON history and Codex subscription
 
 ## Deploy and verify
 
+For Google OAuth credentials, callback URLs, and sign-in verification, see
+[Google sign-in setup](docs/google-sign-in.md).
+
 GitHub Actions runs the build, unit/backend tests, and browser tests for pull requests to `main`. After a merge (or any push to `main`), successful checks trigger deployment of both the Convex backend and frontend using the existing static-hosting component. The production build gets its Convex URL from that component. Deployments run one at a time without cancelling an active release; superseded commits and old reruns skip publishing. A final check compares the live HTML with the built entry point.
 
 One-time setup: generate a **production deploy key** for `acoustic-cuttlefish-868` in the Convex dashboard, then add it as `CONVEX_DEPLOY_KEY` under this repository's **Settings → Secrets and variables → Actions** (or its `production` environment). The workflow rejects missing keys and keys for another deployment. Keep service keys and auth configuration in Convex; CI only needs the deploy key. Configure the existing production environment once with the script below if it is not already configured.
@@ -97,7 +100,7 @@ Credentials stay on the backend. Audio goes through OpenAI WebRTC; Rehearsal doe
 
 Email text is processed; attachments are not imported. Firecrawl receives public URLs and search terms. Enabling replies sends an authenticated workspace link in the original thread. The app requests `store: false` for OpenAI calls; this is not a claim about provider-wide retention.
 
-Passkeys use Convex Auth v2 alpha. Account recovery is not implemented, so keep access to your passkey. New users share one configured AgentMail inbox, with independently owned routing records. Monthly plan allowances apply alongside daily abuse limits of ten preparations and ten voice starts per account, shared ceilings of one hundred each, and a separate Free-tier voice safety budget.
+Google sign-in and passkeys use Convex Auth v2 alpha. Passkey recovery and linking between sign-in methods are not implemented, so keep access to your passkey if you use one. New users share one configured AgentMail inbox, with independently owned routing records. Monthly plan allowances apply alongside daily abuse limits of ten preparations and ten voice starts per account, shared ceilings of one hundred each, and a separate Free-tier voice safety budget.
 
 Automated checks cover ownership, transcript deduplication, feedback leases, cleanup, webhook signatures, and browser practice/retry flows. Real-service checks use synthetic audio and invitations; a human microphone listening check remains part of final demo rehearsal.
 

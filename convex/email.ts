@@ -297,7 +297,7 @@ export const notifyReady = internalMutation({
       o.inboxId,
       o.messageId,
       {
-        text: `Your interview preparation is ready. Open your private Rehearsal workspace to review the brief and practice out loud:\n${env.SITE_URL}/?prep=${id}\n\nSign in with the passkey for your Rehearsal account.`,
+        text: `Your interview preparation is ready. Open your private Rehearsal workspace to review the brief and practice out loud:\n${env.SITE_URL}/?prep=${id}\n\nUse the same Google account or passkey you used to create this workspace.`,
         replyAll: false,
         labels: ["auto-reply"],
       },

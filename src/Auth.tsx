@@ -5,6 +5,10 @@ import {
   useConvexAuth,
 } from "@convex-dev/auth/react";
 import { usePasskey } from "@convex-dev/auth/providers/passkey/react";
+import {
+  useOauth,
+  useSignInWithGoogle,
+} from "@convex-dev/auth/providers/oauth/react";
 import { AudioLines, KeyRound, ArrowRight } from "lucide-react";
 import { api } from "../convex/_generated/api";
 import { convex } from "./convex";
@@ -32,6 +36,14 @@ function SignIn() {
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
   const { signIn, pending } = usePasskey(api.auth, { autofill: false });
+  const { signInGoogle } = useSignInWithGoogle(api.auth);
+  const { flowError } = useOauth();
+  const [googlePending, setGooglePending] = useState(false);
+  const oauthError = flowError
+    ? flowError.code === "access_denied"
+      ? "Google sign-in was canceled. Try again when you’re ready."
+      : "Google sign-in did not finish. Please start again from this page."
+    : "";
   return (
     <div className="auth-page">
       <div className="auth-card">
@@ -53,6 +65,25 @@ function SignIn() {
           <li>Tell your story.</li>
           <li>Hear what changed.</li>
         </ol>
+        <button
+          type="button"
+          className="primary google-sign-in"
+          disabled={pending || googlePending}
+          onClick={async () => {
+            setError("");
+            setGooglePending(true);
+            try {
+              await signInGoogle();
+            } catch {
+              setError("Could not start Google sign-in. Please try again.");
+              setGooglePending(false);
+            }
+          }}
+        >
+          {googlePending ? "Opening Google…" : "Continue with Google"}
+          <ArrowRight size={18} />
+        </button>
+        <p className="auth-divider">Or use a passkey</p>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -79,14 +110,14 @@ function SignIn() {
             onChange={(e) => setUsername(e.target.value)}
             placeholder="Your practice name"
           />
-          <button className="primary" disabled={pending}>
+          <button className="primary" disabled={pending || googlePending}>
             <KeyRound size={18} />
             {pending ? "Waiting for your passkey…" : "Continue with a passkey"}
             <ArrowRight size={18} />
           </button>
-          {error && (
+          {(error || oauthError) && (
             <p role="alert" className="auth-error">
-              {error}
+              {error || oauthError}
             </p>
           )}
         </form>
@@ -97,8 +128,9 @@ function SignIn() {
           audio.
         </p>
         <p className="privacy-copy">
-          Use a passkey-capable browser and device. Keep your passkey: account
-          recovery is not available yet.
+          Returning? Use the same sign-in method to reach your saved workspace.
+          Google and passkey accounts are separate. Keep your passkey if you use
+          one: passkey recovery is not available yet.
         </p>
       </div>
     </div>

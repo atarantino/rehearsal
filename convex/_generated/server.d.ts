@@ -33,6 +33,8 @@ type Env = {
   readonly AGENTMAIL_API_KEY: string;
   readonly AGENTMAIL_SHARED_INBOX_ID: string | undefined;
   readonly AGENTMAIL_WEBHOOK_SECRET: string | undefined;
+  readonly AUTH_GOOGLE_CLIENT_ID: string;
+  readonly AUTH_GOOGLE_CLIENT_SECRET: string;
   readonly AUTH_JWKS: string;
   readonly AUTH_PRIVATE_KEY: string;
   readonly FIRECRAWL_API_KEY: string;

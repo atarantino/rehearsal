@@ -31,6 +31,9 @@ export default defineSchema({
     .index("by_stripeCustomerId", ["stripeCustomerId"]),
   users: defineTable({
     username: v.union(v.string(), v.null()),
+    // Google-verified address, refreshed on each Google sign-in. Contact
+    // only: never use it to find or merge accounts.
+    email: v.optional(v.string()),
     resumeText: v.optional(v.string()),
   }),
   sessions: defineTable({
