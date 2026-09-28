@@ -83,6 +83,7 @@ export declare const components: {
   firecrawl: import("@firecrawl/firecrawl-convex/_generated/component.js").ComponentApi<"firecrawl">;
   authPasskey: import("@convex-dev/auth/providers/passkey/_generated/component.js").ComponentApi<"authPasskey">;
   authUsername: import("@convex-dev/auth/username/_generated/component.js").ComponentApi<"authUsername">;
+  oauthGoogle: import("@convex-dev/auth/providers/oauth/_generated/component.js").ComponentApi<"oauthGoogle">;
   workflow: import("@convex-dev/workflow/_generated/component.js").ComponentApi<"workflow">;
   rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
   agentmail: import("@agentmail/convex/_generated/component.js").ComponentApi<"agentmail">;
