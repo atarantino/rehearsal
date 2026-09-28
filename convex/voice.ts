@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { feedbackAlternatives } from "../shared/bounded-feedback";
 import { delegationFallback, shortLiveText } from "../shared/cost-controls";
 import { mockInterviewInstructions } from "../shared/interview";
 import { v, ConvexError, type Infer } from "convex/values";
@@ -200,21 +201,33 @@ export const review = action({
       let validationError = "";
       let rejectedFeedback: unknown;
       for (let attempt = 0; attempt < 2; attempt++) {
-        const raw = await structured(
+        const { value: raw, inputVariant } = await structured(
           ctx,
-          { ownerId: owner.ownerId, sessionId: id, operation: "feedback" },
+          {
+            ownerId: owner.ownerId,
+            sessionId: id,
+            operation: "feedback",
+            feedbackClaim: claimed,
+          },
           feedbackGenerationSchema,
           "interview_feedback",
           feedbackInstructions +
             (validationError
-              ? "\nCorrect rejectedFeedback in the reference data. It failed evidence validation: " +
+              ? "\nThe previous response failed evidence validation. Correct this issue in your new response: " +
                 validationError +
                 " Copy short exact quotes from current user speech, preserving punctuation and whitespace. Do not reuse a previous-attempt quote."
               : ""),
           validationError ? { ...input, rejectedFeedback } : input,
+          { alternatives: feedbackAlternatives(s, previous) },
         );
         try {
           feedback = validateFeedback(raw, s);
+          if (inputVariant === 2) {
+            feedback.comparison = null;
+            feedback.summary =
+              "This feedback covers selected transcript excerpts. Your full transcript remains saved. " +
+              feedback.summary;
+          }
           break;
         } catch (error) {
           console.warn("Feedback validation failed", {
@@ -318,7 +331,7 @@ export const delegate = action({
       .map((t) => `${t.speaker}: ${t.text}`)
       .join("\n")
       .slice(-10000);
-    const suggestion = await structured(
+    const { value: suggestion } = await structured(
       ctx,
       { ownerId: owner.ownerId, sessionId: id, operation: "delegation" },
       z.object({ question: z.string().max(300) }),
@@ -341,7 +354,7 @@ export const delegate = action({
           input.candidateQuestionsTranscript.length > 0,
         transcript,
       },
-      claim.id,
+      { reservedId: claim.id },
     );
     return shortLiveText(suggestion.question);
   },

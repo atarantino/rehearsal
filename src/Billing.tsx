@@ -316,10 +316,11 @@ export function Billing() {
             the next minute per practice. One preparation researches an
             opportunity and builds your interview brief. Written feedback has a
             monthly processing limit of one generation attempt per included
-            voice minute; retries count toward it. Large materials may need
-            shortening. Live follow-up reasoning has the same monthly attempt
-            limit; voice practice can continue with the available context when
-            it is reached.
+            voice minute; retries count when generation starts. Capacity denials
+            do not use a review attempt. Large materials may be reviewed in
+            clearly labeled excerpts. Live follow-up reasoning has the same
+            monthly attempt limit; voice practice can continue with the
+            available context when it is reached.
           </p>
         </>
       )}

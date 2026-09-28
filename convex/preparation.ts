@@ -141,6 +141,7 @@ export const removeAttachment = mutation({
       attachments: o.attachments.filter((a) => a.id !== attachmentId),
       sources: o.sources.filter((s) => s.url !== sourceUrl),
       brief: undefined,
+      inputTooLarge: undefined,
       status: "failed",
       error:
         "Prep materials changed. Prepare again to build a fresh brief from the remaining sources.",
@@ -165,6 +166,10 @@ export const retry = mutation({
     )
       throw new ConvexError(
         "Only failed preparation or attachment imports can be retried.",
+      );
+    if (o.inputTooLarge)
+      throw new ConvexError(
+        "Remove an attachment before retrying, or create a preparation from a shorter source. This retry did not use an allowance.",
       );
     await consumePreparation(ctx, user._id);
     await limits.limit(ctx, "research", { key: user._id, throws: true });
@@ -199,12 +204,29 @@ export const update = internalMutation({
     brief: v.optional(brief),
     error: v.optional(v.string()),
     attachments: v.optional(v.array(attachment)),
+    inputTooLarge: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, { id, ...patch }) => {
     // A canceled action may finish after its opportunity was deleted.
     if (!(await ctx.db.get(id))) return null;
     await ctx.db.patch(id, patch);
+    return null;
+  },
+});
+
+// Preserve a safe, actionable AI error recorded by the failed action.
+export const fail = internalMutation({
+  args: { id: v.id("opportunities") },
+  returns: v.null(),
+  handler: async (ctx, { id }) => {
+    const o = await ctx.db.get(id);
+    if (o && !(o.status === "failed" && o.error))
+      await ctx.db.patch(id, {
+        status: "failed",
+        error:
+          "Preparation could not finish. Check the source URL or try again shortly.",
+      });
     return null;
   },
 });

@@ -107,7 +107,7 @@ it("rejects oversized inputs before generation and fails closed when counting fa
   const fetch = provider(AI_POLICY.delegation.input + 1);
   await expect(
     a.action(api.voice.delegate, { id, delegationId: "big" }),
-  ).rejects.toThrow("too long");
+  ).rejects.toThrow("exceed the processing limit");
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(await t.query(internal.aiUsage.recent, { ownerId })).toMatchObject([
     { state: "rejected", errorCode: "input_budget_exceeded" },
@@ -214,42 +214,62 @@ it("distinguishes exhausted funding from transient throttling and honors long Re
   ).rejects.toThrow("30 seconds");
   expect(fetch).toHaveBeenCalledTimes(2);
 });
-it("allows final transcript delivery briefly, then freezes it", async () => {
-  const { a, id } = await setup();
+it("recovers delayed transcript fragments until feedback starts", async () => {
+  const { t, a, id } = await setup();
   await a.mutation(api.sessions.finalize, {
     id,
     confirmed: true,
     reason: "done",
   });
+  vi.setSystemTime(Date.now() + 60001);
   const fragment = {
-    event_id: "last",
+    event_id: "late",
     speaker: "user" as const,
     delta: "I owned the rollout.",
     start_ms: 0,
     end_ms: 100,
   };
   await a.mutation(api.sessions.append, { id, fragments: [fragment] });
-  vi.setSystemTime(Date.now() + 60001);
+  expect(
+    await t.run((ctx) => ctx.db.query("fragments").collect()),
+  ).toHaveLength(1);
+  await t.run((ctx) => ctx.db.patch(id, { feedbackState: "running" }));
   await expect(
     a.mutation(api.sessions.append, {
       id,
-      fragments: [{ ...fragment, event_id: "late" }],
+      fragments: [{ ...fragment, event_id: "locked" }],
     }),
-  ).rejects.toThrow("window has closed");
+  ).rejects.toThrow();
 });
-it("enforces period feedback processing budget atomically and preserves it through deletion", async () => {
+it("enforces period feedback admission atomically and preserves it through deletion", async () => {
   const { t, a, ownerId, id } = await setup();
-  await t.run((ctx) => ctx.db.patch(id, { feedbackState: "running" }));
-  const args = { ownerId, sessionId: id, operation: "feedback" as const };
-  for (let n = 0; n < 9; n++) await t.mutation(internal.aiUsage.begin, args);
-  const results = await Promise.allSettled([
-    t.mutation(internal.aiUsage.begin, args),
-    t.mutation(internal.aiUsage.begin, args),
-  ]);
-  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-  await expect(t.mutation(internal.aiUsage.begin, args)).rejects.toThrow(
-    "processing limit",
+  const feedbackClaim = Date.now();
+  await t.run((ctx) =>
+    ctx.db.patch(id, {
+      feedbackState: "running",
+      feedbackStartedAt: feedbackClaim,
+    }),
   );
+  const args = {
+    ownerId,
+    sessionId: id,
+    operation: "feedback" as const,
+    feedbackClaim,
+  };
+  async function admit() {
+    const request = await t.mutation(internal.aiUsage.begin, args);
+    return t.mutation(internal.aiUsage.admitTokens, {
+      id: request.id,
+      inputTokens: 100,
+    });
+  }
+  for (let n = 0; n < 9; n++) await admit();
+  const results = await Promise.allSettled([admit(), admit()]);
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  await expect(admit()).rejects.toThrow("processing limit");
+  expect(await t.run((ctx) => ctx.db.get(id))).toMatchObject({
+    feedbackAttempts: 1,
+  });
   await t.mutation(internal.sessions.markClosed, { id, reason: "done" });
   await a.mutation(api.sessions.remove, { id });
   const period = await t.run((ctx) => ctx.db.query("usagePeriods").first());
@@ -406,4 +426,268 @@ it("keeps a paid generation's HTTP 500 outcome unknown without replay", async ()
   expect(await t.query(internal.aiUsage.recent, { ownerId })).toMatchObject([
     { state: "unknown", reservedCostMicros: 14788, errorCode: "server_error" },
   ]);
+});
+
+it.each(["globalFreeAiSpend", "globalFreeFeedback"] as const)(
+  "capacity denials at %s preserve review attempts and recover tomorrow",
+  async (limiter) => {
+    const { t, a, ownerId, id } = await setup();
+    vi.setSystemTime(Date.now() + 10000);
+    await t.mutation(internal.sessions.markClosed, { id, reason: "done" });
+    await t.run((ctx) =>
+      limits.limit(ctx, limiter, {
+        count: limiter === "globalFreeAiSpend" ? 1_000_000 : 60,
+        throws: true,
+      }),
+    );
+    for (let n = 0; n < 3; n++) {
+      const claim = await a.mutation(internal.sessions.claimFeedback, { id });
+      const request = await t.mutation(internal.aiUsage.begin, {
+        ownerId,
+        sessionId: id,
+        operation: "feedback",
+        feedbackClaim: claim!,
+      });
+      await expect(
+        t.mutation(internal.aiUsage.admitTokens, {
+          id: request.id,
+          inputTokens: 100,
+        }),
+      ).rejects.toThrow("shared capacity");
+      await t.mutation(internal.sessions.saveFeedback, {
+        id,
+        claim: claim!,
+        error: "capacity",
+      });
+    }
+    expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackAttempts ?? 0).toBe(
+      0,
+    );
+    expect(
+      (await t.run((ctx) => ctx.db.query("usagePeriods").first()))
+        ?.feedbackCalls ?? 0,
+    ).toBe(0);
+    vi.setSystemTime(Date.now() + 86400000);
+    const claim = await a.mutation(internal.sessions.claimFeedback, { id });
+    const request = await t.mutation(internal.aiUsage.begin, {
+      ownerId,
+      sessionId: id,
+      operation: "feedback",
+      feedbackClaim: claim!,
+    });
+    await t.mutation(internal.aiUsage.admitTokens, {
+      id: request.id,
+      inputTokens: 100,
+    });
+    expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackAttempts).toBe(1);
+  },
+);
+it("rejects stale feedback claims before reserving paid capacity", async () => {
+  const { t, ownerId, id } = await setup();
+  await t.run((ctx) =>
+    ctx.db.patch(id, { feedbackState: "running", feedbackStartedAt: 100 }),
+  );
+  const request = await t.mutation(internal.aiUsage.begin, {
+    ownerId,
+    sessionId: id,
+    operation: "feedback",
+    feedbackClaim: 100,
+  });
+  await t.run((ctx) => ctx.db.patch(id, { feedbackStartedAt: 101 }));
+  await expect(
+    t.mutation(internal.aiUsage.admitTokens, {
+      id: request.id,
+      inputTokens: 100,
+    }),
+  ).rejects.toThrow("no longer running");
+  await expect(
+    t.mutation(internal.aiUsage.begin, {
+      ownerId,
+      sessionId: id,
+      operation: "feedback",
+    }),
+  ).rejects.toThrow("no longer running");
+  expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackAttempts ?? 0).toBe(0);
+});
+it("recognizes confirmed normal completion after provider closure without changing settled usage", async () => {
+  const { t, a, id } = await setup();
+  vi.setSystemTime(Date.now() + 10000);
+  await t.mutation(internal.sessions.markClosed, {
+    id,
+    reason: "provider_closed",
+  });
+  const before = await t.run((ctx) => ctx.db.get(id));
+  await a.mutation(api.sessions.finalize, {
+    id,
+    confirmed: true,
+    reason: "close_requested",
+  });
+  const after = await t.run((ctx) => ctx.db.get(id));
+  expect(after?.record).toMatchObject({
+    status: "completed",
+    closeReason: "close_requested",
+    endedAt: before?.record.endedAt,
+  });
+  expect(after?.record.seconds).toEqual(before?.record.seconds);
+});
+it("retains a provider startup request ID when a later failure supplies no metadata", async () => {
+  const { t, id } = await setup();
+  await t.mutation(internal.providerCleanup.start, {
+    sessionId: id,
+    state: "unknown",
+    requestId: "req_start",
+    errorCode: "lost",
+  });
+  await t.mutation(internal.providerCleanup.start, {
+    sessionId: id,
+    state: "unknown",
+  });
+  expect(
+    await t.run((ctx) => ctx.db.query("voiceReservations").first()),
+  ).toMatchObject({
+    providerRequestId: "req_start",
+    providerErrorCode: "lost",
+  });
+});
+it("recounts reduced preparation inputs, preserves size errors, and blocks unchanged retries", async () => {
+  const { t, a, ownerId } = await setup();
+  const id = await t.run((ctx) =>
+    ctx.db.insert("opportunities", {
+      ownerId,
+      requestId: "large",
+      input: "text ".repeat(3600),
+      kind: "email",
+      status: "reading",
+      sources: [],
+      receivedAt: Date.now(),
+      attachments: [
+        {
+          id: "a",
+          filename: "job.txt",
+          status: "imported",
+          text: "job ".repeat(3000),
+          contentType: "text/plain",
+          size: 12000,
+        },
+      ],
+    }),
+  );
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    const body = JSON.parse(init!.body as string);
+    if (url.endsWith("/input_tokens"))
+      return new Response(
+        JSON.stringify({
+          input_tokens: body.input.length > 10000 ? 13000 : 2000,
+        }),
+      );
+    return new Response(
+      JSON.stringify({
+        id: "response",
+        status: "completed",
+        output: [
+          {
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify({
+                  role: "Engineer",
+                  company: "Example",
+                  interviewDate: null,
+                  preparation: [],
+                  jobUrl: null,
+                }),
+              },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+  vi.stubGlobal("fetch", fetch);
+  await t.action(internal.research.extract, { id });
+  expect(fetch).toHaveBeenCalledTimes(3);
+  const counted = JSON.parse(fetch.mock.calls[1][1]!.body as string);
+  const generated = JSON.parse(fetch.mock.calls[2][1]!.body as string);
+  expect(generated.input).toBe(counted.input);
+  expect(JSON.parse(generated.input).inputCoverage).toContain("excerpts");
+  fetch.mockImplementation(
+    async () => new Response(JSON.stringify({ input_tokens: 13000 })),
+  );
+  await expect(t.action(internal.research.extract, { id })).rejects.toThrow(
+    "exceed the processing limit",
+  );
+  await t.mutation(internal.preparation.fail, { id });
+  expect(await t.query(internal.preparation.load, { id })).toMatchObject({
+    status: "failed",
+    inputTooLarge: true,
+    error: expect.stringContaining("Remove attachments"),
+  });
+  await expect(a.mutation(api.preparation.retry, { id })).rejects.toThrow(
+    "did not use an allowance",
+  );
+  expect(
+    (await t.run((ctx) => ctx.db.query("usagePeriods").first()))
+      ?.preparationsUsed ?? 0,
+  ).toBe(0);
+  await a.mutation(api.preparation.removeAttachment, { id, attachmentId: "a" });
+  expect(
+    (await t.query(internal.preparation.load, { id })).inputTooLarge,
+  ).toBeUndefined();
+});
+
+it("labels transcript excerpt feedback and charges only the admitted generation", async () => {
+  const { sampleFeedback } = await import("./fixtures");
+  const { t, a, ownerId, id } = await setup();
+  await a.mutation(api.sessions.append, {
+    id,
+    fragments: [
+      {
+        event_id: "answer",
+        speaker: "user",
+        delta: "I led the launch. We shipped on time.",
+        start_ms: 0,
+        end_ms: 1000,
+      },
+    ],
+  });
+  vi.setSystemTime(Date.now() + 10000);
+  await t.mutation(internal.sessions.markClosed, { id, reason: "done" });
+  const original = await a.query(internal.sessions.full, { id });
+  let counts = 0;
+  const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+    if (url.endsWith("/input_tokens"))
+      return new Response(
+        JSON.stringify({ input_tokens: ++counts < 3 ? 13000 : 3000 }),
+      );
+    return new Response(
+      JSON.stringify({
+        id: "response",
+        status: "completed",
+        output: [
+          {
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify(sampleFeedback(original)),
+              },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+  vi.stubGlobal("fetch", fetch);
+  const result = await a.action(api.voice.review, { id });
+  expect(result.feedback?.summary).toContain(
+    "covers selected transcript excerpts",
+  );
+  expect(result.fragments).toEqual(original.fragments);
+  expect(fetch).toHaveBeenCalledTimes(4);
+  expect(JSON.parse(fetch.mock.calls[3][1]!.body as string).input).toBe(
+    JSON.parse(fetch.mock.calls[2][1]!.body as string).input,
+  );
+  expect(await t.query(internal.aiUsage.recent, { ownerId })).toMatchObject([
+    { inputVariant: 2, state: "completed" },
+  ]);
+  expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackAttempts).toBe(1);
 });

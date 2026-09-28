@@ -103,6 +103,7 @@ export type AiContext = {
   sessionId?: Id<"sessions">;
   opportunityId?: Id<"opportunities">;
   operation: AiOperation;
+  feedbackClaim?: number;
 };
 export async function structured<T>(
   ctx: ActionCtx,
@@ -111,10 +112,13 @@ export async function structured<T>(
   name: string,
   instructions: string,
   input: unknown,
-  reservedId?: Id<"aiRequests">,
-): Promise<T> {
+  options: {
+    reservedId?: Id<"aiRequests">;
+    alternatives?: readonly unknown[];
+  } = {},
+): Promise<{ value: T; inputVariant: number }> {
   const id: Id<"aiRequests"> =
-    reservedId ??
+    options.reservedId ??
     (await ctx.runMutation(internal.aiUsage.begin, attribution)).id;
   const policy = AI_POLICY[attribution.operation];
   const request = {
@@ -131,24 +135,30 @@ export async function structured<T>(
       },
     },
   };
+  let inputVariant = 0;
   let countedInputTokens: number | undefined;
   let sent = false;
   let result: Json | undefined;
   let savedResult: string | undefined;
   try {
-    const count = await openaiRequest("/responses/input_tokens", request, {
-      retrySafe: true,
-      timeoutMs: 15000,
-    });
-    if (!Number.isSafeInteger(count.input_tokens) || count.input_tokens < 0)
+    const inputs = [input, ...(options.alternatives ?? [])];
+    for (inputVariant = 0; inputVariant < inputs.length; inputVariant++) {
+      request.input = JSON.stringify(inputs[inputVariant]);
+      const count = await openaiRequest("/responses/input_tokens", request, {
+        retrySafe: true,
+        timeoutMs: 10000,
+      });
+      if (!Number.isSafeInteger(count.input_tokens) || count.input_tokens < 0)
+        throw new OpenAIError(
+          "Could not verify the request size. Please retry later.",
+          "invalid_token_count",
+        );
+      countedInputTokens = count.input_tokens;
+      if (countedInputTokens! <= policy.input) break;
+    }
+    if (inputVariant === inputs.length)
       throw new OpenAIError(
-        "Could not verify the request size. Please retry later.",
-        "invalid_token_count",
-      );
-    countedInputTokens = count.input_tokens;
-    if (countedInputTokens! > policy.input)
-      throw new OpenAIError(
-        "These materials are too long to process in one request. Use a shorter transcript or fewer preparation materials.",
+        "These materials exceed the processing limit. Remove attachments or use a shorter source before trying again. No model generation was started.",
         "input_budget_exceeded",
       );
     await ctx.runMutation(internal.aiUsage.admitTokens, {
@@ -181,7 +191,7 @@ export async function structured<T>(
     if (attribution.operation === "delegation")
       savedResult = JSON.stringify(parsed);
     await finish("completed");
-    return parsed;
+    return { value: parsed, inputVariant };
   } catch (error) {
     await finish(
       !sent
@@ -210,6 +220,7 @@ export async function structured<T>(
       values: {
         state,
         countedInputTokens,
+        inputVariant,
         result: savedResult,
         inputTokens: number(usage?.input_tokens),
         cacheWriteTokens: number(

@@ -78,9 +78,9 @@ export const start = internalMutation({
     if (reservation && reservation.providerStartState !== "created")
       await ctx.db.patch(reservation._id, {
         providerStartState: args.state,
-        providerRequestId: args.requestId,
-        providerErrorCode: args.errorCode,
-        providerLiveId: args.liveId,
+        providerRequestId: args.requestId ?? reservation.providerRequestId,
+        providerErrorCode: args.errorCode ?? reservation.providerErrorCode,
+        providerLiveId: args.liveId ?? reservation.providerLiveId,
       });
     return null;
   },

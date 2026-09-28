@@ -15,6 +15,8 @@ export default defineSchema({
     sessionId: v.optional(v.id("sessions")),
     opportunityId: v.optional(v.id("opportunities")),
     delegationId: v.optional(v.string()),
+    feedbackClaim: v.optional(v.number()),
+    inputVariant: v.optional(v.number()),
     operation: v.union(
       v.literal("feedback"),
       v.literal("delegation"),
@@ -103,6 +105,7 @@ export default defineSchema({
     ),
     feedbackStartedAt: v.optional(v.number()),
     feedbackAttempts: v.optional(v.number()),
+    feedbackChargedClaim: v.optional(v.number()),
     delegationCalls: v.optional(v.number()),
   })
     .index("by_ownerId", ["ownerId"])
@@ -158,6 +161,7 @@ export default defineSchema({
     sources: v.array(source),
     brief: v.optional(brief),
     error: v.optional(v.string()),
+    inputTooLarge: v.optional(v.boolean()),
     workflowId: v.optional(v.string()),
     inboxId: v.optional(v.string()),
     inboxRecordId: v.optional(v.id("inboxes")),

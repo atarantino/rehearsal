@@ -14,7 +14,7 @@ The ordinary-use planning estimate remains **$4.62 OpenAI cost for Plus** and **
 
 ## Enforced model budgets
 
-`shared/cost-controls.ts` defines the budgets. The server counts the exact model, input, instructions and output schema through `/responses/input_tokens` before generation. Failed counts and oversized inputs stop generation. Long materials must be shortened; the app does not silently summarize them with another paid call.
+`shared/cost-controls.ts` defines the budgets. The server counts the exact model, input, instructions and output schema through `/responses/input_tokens` before generation. Failed counts stop generation. Oversized feedback and preparation inputs are reduced to explicit verbatim excerpts and counted again before admission. Feedback preserves the complete current transcript first; if transcript excerpts are needed, the resulting review says so. The saved transcript is unchanged.
 
 | Operation         | Maximum input tokens | Maximum billed output tokens |
 | ----------------- | -------------------: | ---------------------------: |
@@ -26,10 +26,10 @@ The ordinary-use planning estimate remains **$4.62 OpenAI cost for Plus** and **
 All four use GPT-5.6 Terra, low reasoning, standard service tier. Output limits include reasoning tokens. Incomplete output can cost money without producing useful feedback.
 
 - Live reasoning uses client delegation routed through an authenticated server action. The browser supplies a delegation ID; the server owns the prompt and model. Repeated IDs are deduplicated. Maximum calls per interview: six coached, twenty mock. New tasks suppress stale browser replies.
-- Monthly live reasoning and feedback each have a separate processing-attempt budget equal to the plan's included voice minutes: 10 / 60 / 150. Retries, rejected inputs and uncertain outcomes consume attempts. Deleting a session does not restore capacity.
-- Written feedback retains three review claims per session, up to two generations each, with the monthly budget taking precedence. A completed review is reused.
-- Preparation retains two attempts per workflow step. A user-requested preparation retry consumes another preparation allowance.
-- Paid generation and voice creation are not automatically replayed after network failures. Read/count requests may retry once for short 429/503 delays; longer `Retry-After` values are surfaced. Preparation workflow retries remain separately bounded.
+- Monthly live reasoning and feedback each have a separate processing-attempt budget equal to the plan's included voice minutes: 10 / 60 / 150. Live reasoning requests include rejected attempts. Feedback only consumes a generation allowance after token and shared-capacity admission; uncertain paid outcomes retain the charge. Deleting a session does not restore capacity.
+- Written feedback retains three admitted review claims per session, up to two generations each, with the monthly budget taking precedence. A completed review is reused.
+- Preparation AI steps have no automatic retries. Unchanged input that still exceeds the cap is blocked from manual retry until an attachment is removed; a shorter source can be submitted separately. A user-requested preparation retry consumes another preparation allowance.
+- Paid generation and voice creation are not automatically replayed after network failures. Read/count requests may retry once for short 429/503 delays; longer `Retry-After` values are surfaced. Attachment import retries remain separately bounded.
 - Funding exhaustion is reported distinctly from request-rate throttling, with safe error codes and request IDs logged.
 
 The Plans screen discloses processing limits, shared Free capacity and material-size restrictions.
@@ -44,7 +44,7 @@ Free text-model work also reserves against **$1 per UTC day** before generation.
 
 ## Voice expiry and reconciliation
 
-Unconnected reservations expire after 45 seconds. Activation starts the five- or twenty-minute duration cap without allowing repeated activation to extend it. The backend schedules hangup at that cap. Final transcript fragments may arrive for 60 seconds after closure, before feedback starts.
+Unconnected reservations expire after 45 seconds. Activation starts the five- or twenty-minute duration cap without allowing repeated activation to extend it. The backend schedules hangup at that cap. Delayed final transcript fragments may arrive until feedback starts, within the existing size and timeline bounds.
 
 Provider cleanup is retained independently of session deletion. Hangup retries are bounded; exhausted cleanup is queryable through `providerCleanup:failures`. Startup outcomes and known provider IDs/request IDs remain on `voiceReservations`, including ambiguous failures.
 
@@ -68,12 +68,12 @@ The ordinary-use estimate assumes these call costs: delegation $0.011 (4k input/
 Ordinary-use estimate = 0.0622M + 0.0592P
 ```
 
-At maximum admitted tokens and processing attempts, pricing every input token as a cache write, the policy allows feedback at $0.060/call, delegation at $0.027288/call, and up to $0.232 per preparation (two attempts at each step):
+At maximum admitted tokens and processing attempts, pricing every input token as a cache write, the policy allows feedback at $0.060/call, delegation at $0.027288/call, and up to $0.116 per preparation (one generation at each step):
 
 ```text
-Policy scenario = (0.05 + 0.060 + 0.027288)M + 0.232P
-                = 0.137288M + 0.232P
-Plus: $11.72; Pro: $29.87
+Policy scenario = (0.05 + 0.060 + 0.027288)M + 0.116P
+                = 0.137288M + 0.116P
+Plus: $9.98; Pro: $25.23
 ```
 
 This is a scenario for one full allowance period, not a guaranteed total bill. It excludes failed-start charges, provider overrun, uncertain requests, entitlement transitions, price changes, and other services. Shared daily limits can reduce admitted work. Pro still has limited room under unusually heavy use, so keep pilot monitoring in place before expanding.
@@ -100,3 +100,7 @@ Convex, Firecrawl, AgentMail, payment fees, hosting, support, refunds and taxes 
 - A real development voice attempt reported 35 provider seconds and confirmed closure. Its feedback completed with 1,083 input tokens and 711 output tokens persisted. A separate small request confirmed the token-count and generation endpoints accept the intended request shape. No natural live delegation occurred during that short attempt; delegation event routing and limits are covered by automated checks.
 - The earlier Opus 5.5 pricing review completed. The follow-up patch review could not run because Claude's session limit was exhausted; no independent Opus approval of this patch is claimed.
 - Production was not deployed, and financial account settings were not changed.
+
+### Follow-up regression validation
+
+The review fixes preserve attempts on capacity denial, accept delayed transcript recovery before review, reconcile confirmed normal completion after provider closure, and retain provider startup metadata. Preparation size errors remain actionable and cannot trigger unchanged retries. The real token counter measured a legal long-feedback fixture at 14,449 tokens; reducing optional context retained its entire current transcript at 5,730 tokens, below the unchanged 12,000-token cap.

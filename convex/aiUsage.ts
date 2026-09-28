@@ -12,6 +12,7 @@ export const begin = internalMutation({
     sessionId: v.optional(v.id("sessions")),
     opportunityId: v.optional(v.id("opportunities")),
     delegationId: v.optional(v.string()),
+    feedbackClaim: v.optional(v.number()),
     operation: schema.doc("aiRequests").fields.operation,
   },
   returns: v.object({
@@ -59,25 +60,12 @@ export const begin = internalMutation({
           delegationCalls: (s.delegationCalls ?? 0) + 1,
         });
       } else {
-        // Bind generation to a claimed review. Each attempt reserves capacity
-        // before any network request; timeouts and rejected generations count.
-        if (s.feedbackState !== "running")
-          throw new ConvexError("Review is not running.");
-        const period = await ensurePeriod(ctx, args.ownerId, entitlement);
-        if ((period.feedbackCalls ?? 0) >= entitlement.voiceMinutes)
-          throw new ConvexError(
-            "Written feedback has reached this period's processing limit. Your transcript is saved.",
-          );
-        await limits.limit(
-          ctx,
-          entitlement.plan === "free"
-            ? "globalFreeFeedback"
-            : "globalPaidFeedback",
-          { throws: true },
-        );
-        await ctx.db.patch(period._id, {
-          feedbackCalls: (period.feedbackCalls ?? 0) + 1,
-        });
+        if (
+          s.feedbackState !== "running" ||
+          args.feedbackClaim === undefined ||
+          args.feedbackClaim !== s.feedbackStartedAt
+        )
+          throw new ConvexError("Review is no longer running.");
       }
     } else {
       const o = args.opportunityId
@@ -103,6 +91,7 @@ export const finish = internalMutation({
       .pick(
         "state",
         "countedInputTokens",
+        "inputVariant",
         "inputTokens",
         "cachedInputTokens",
         "cacheWriteTokens",
@@ -164,6 +153,47 @@ export const admitTokens = internalMutation({
         throw new ConvexError(
           "Free processing has reached today's shared capacity. Please try again tomorrow.",
         );
+    }
+    // Charge feedback only at admission, atomically with shared spend capacity.
+    // A denied request rolls back every limiter and counter in this mutation.
+    if (request.operation === "feedback") {
+      const s = request.sessionId ? await ctx.db.get(request.sessionId) : null;
+      if (
+        !s ||
+        s.feedbackState !== "running" ||
+        request.feedbackClaim === undefined ||
+        s.feedbackStartedAt !== request.feedbackClaim
+      )
+        throw new ConvexError("Review is no longer running.");
+      const first = s.feedbackChargedClaim !== request.feedbackClaim;
+      if (first && (s.feedbackAttempts ?? 0) >= 3)
+        throw new ConvexError(
+          "Feedback could not be generated after three attempts.",
+        );
+      const period = await ensurePeriod(ctx, request.ownerId, entitlement);
+      if ((period.feedbackCalls ?? 0) >= entitlement.voiceMinutes)
+        throw new ConvexError(
+          "Written feedback has reached this period's processing limit. Your transcript is saved.",
+        );
+      const allowed = await limits.limit(
+        ctx,
+        entitlement.plan === "free"
+          ? "globalFreeFeedback"
+          : "globalPaidFeedback",
+        {},
+      );
+      if (!allowed.ok)
+        throw new ConvexError(
+          "Written feedback has reached today's shared capacity. Please try again tomorrow; this did not use a review attempt.",
+        );
+      await ctx.db.patch(period._id, {
+        feedbackCalls: (period.feedbackCalls ?? 0) + 1,
+      });
+      if (first)
+        await ctx.db.patch(s._id, {
+          feedbackAttempts: (s.feedbackAttempts ?? 0) + 1,
+          feedbackChargedClaim: request.feedbackClaim,
+        });
     }
     await ctx.db.patch(id, {
       countedInputTokens: inputTokens,

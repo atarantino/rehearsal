@@ -1,4 +1,3 @@
-import { TRANSCRIPT_SAVE_GRACE_MS } from "../shared/cost-controls";
 import { v, ConvexError, type Infer } from "convex/values";
 import {
   query,
@@ -236,11 +235,8 @@ export const append = mutation({
       throw new ConvexError("Transcript batch too large.");
     if (s.feedbackState === "running" || s.feedbackState === "ready")
       throw new ConvexError("This transcript is already under review.");
-    if (
-      s.record.endedAt &&
-      Date.now() > Date.parse(s.record.endedAt) + TRANSCRIPT_SAVE_GRACE_MS
-    )
-      throw new ConvexError("The transcript saving window has closed.");
+    // Keep unsaved fragments recoverable until review begins. Existing byte,
+    // event-count and interview-timestamp limits still bound the stored input.
     let count = s.fragmentCount,
       bytes = s.transcriptBytes;
     for (const raw of fragments) {
@@ -301,6 +297,20 @@ export const finalize = mutation({
         },
       });
     } else if (
+      args.confirmed &&
+      args.reason === "close_requested" &&
+      s.record.status === "partial" &&
+      s.record.closeReason === "provider_closed" &&
+      s.feedbackState === "idle"
+    ) {
+      await ctx.db.patch(s._id, {
+        record: {
+          ...s.record,
+          status: "completed",
+          closeReason: "close_requested",
+        },
+      });
+    } else if (
       s.record.status === "partial" &&
       s.record.closeReason === "close_requested" &&
       args.reason === "connection_lost" &&
@@ -351,7 +361,7 @@ export const claimFeedback = internalMutation({
       );
     if (
       s.feedbackState === "running" &&
-      (s.feedbackStartedAt ?? 0) > Date.now() - 300000
+      (s.feedbackStartedAt ?? 0) > Date.now() - 540000
     )
       throw new ConvexError("Feedback is already being prepared.");
     if ((s.feedbackAttempts ?? 0) >= 3)
@@ -363,7 +373,6 @@ export const claimFeedback = internalMutation({
     await ctx.db.patch(id, {
       feedbackState: "running",
       feedbackStartedAt: claim,
-      feedbackAttempts: (s.feedbackAttempts ?? 0) + 1,
     });
     return claim;
   },
