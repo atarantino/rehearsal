@@ -13,6 +13,7 @@ import { prepStatus, source, brief, attachment } from "./validators";
 import { requireUser } from "./users";
 import { publicUrl } from "../shared/preparation";
 import { limits } from "./limits";
+import { getEntitlement } from "./entitlements";
 import { consumePreparation } from "./usage";
 import { workflow } from "./workflows";
 import type { WorkflowId } from "@convex-dev/workflow";
@@ -38,7 +39,13 @@ export async function enqueue(
   if (old) return old._id;
   await consumePreparation(ctx, args.ownerId);
   await limits.limit(ctx, "research", { key: args.ownerId, throws: true });
-  await limits.limit(ctx, "globalResearch", { throws: true });
+  await limits.limit(
+    ctx,
+    (await getEntitlement(ctx, args.ownerId, Date.now())).plan === "free"
+      ? "globalFreeResearch"
+      : "globalResearch",
+    { throws: true },
+  );
   const id = await ctx.db.insert("opportunities", {
     ...args,
     status: "queued",
@@ -134,6 +141,7 @@ export const removeAttachment = mutation({
       attachments: o.attachments.filter((a) => a.id !== attachmentId),
       sources: o.sources.filter((s) => s.url !== sourceUrl),
       brief: undefined,
+      inputTooLarge: undefined,
       status: "failed",
       error:
         "Prep materials changed. Prepare again to build a fresh brief from the remaining sources.",
@@ -159,13 +167,29 @@ export const retry = mutation({
       throw new ConvexError(
         "Only failed preparation or attachment imports can be retried.",
       );
-    await consumePreparation(ctx, user._id);
+    if (o.inputTooLarge)
+      throw new ConvexError(
+        "Remove an attachment before retrying, or create a preparation from a shorter source. This retry did not use an allowance.",
+      );
+    if (!o.retryWithoutCharge) await consumePreparation(ctx, user._id);
     await limits.limit(ctx, "research", { key: user._id, throws: true });
-    await limits.limit(ctx, "globalResearch", { throws: true });
+    await limits.limit(
+      ctx,
+      (await getEntitlement(ctx, user._id, Date.now())).plan === "free"
+        ? "globalFreeResearch"
+        : "globalResearch",
+      { throws: true },
+    );
     const workflowId = await workflow.start(ctx, internal.workflows.prepare, {
       id,
     });
-    await ctx.db.patch(id, { status: "queued", error: undefined, workflowId });
+    await ctx.db.patch(id, {
+      status: "queued",
+      error: undefined,
+      workflowId,
+      generationStarted: false,
+      retryWithoutCharge: undefined,
+    });
     return null;
   },
 });
@@ -186,12 +210,49 @@ export const update = internalMutation({
     brief: v.optional(brief),
     error: v.optional(v.string()),
     attachments: v.optional(v.array(attachment)),
+    inputTooLarge: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, { id, ...patch }) => {
     // A canceled action may finish after its opportunity was deleted.
     if (!(await ctx.db.get(id))) return null;
     await ctx.db.patch(id, patch);
+    return null;
+  },
+});
+
+// Preserve a safe, actionable AI error recorded by the failed action.
+export const fail = internalMutation({
+  args: { id: v.id("opportunities") },
+  returns: v.null(),
+  handler: async (ctx, { id }) => {
+    const o = await ctx.db.get(id);
+    if (o)
+      await ctx.db.patch(id, {
+        status: "failed",
+        error:
+          o.error ??
+          "Preparation could not finish. Check the source URL or try again shortly.",
+      });
+    return null;
+  },
+});
+
+export const recordAiFailure = internalMutation({
+  args: {
+    id: v.id("opportunities"),
+    message: v.string(),
+    code: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { id, message, code }) => {
+    const o = await ctx.db.get(id);
+    if (o)
+      await ctx.db.patch(id, {
+        error: message,
+        inputTooLarge: code === "input_budget_exceeded",
+        retryWithoutCharge: code === "capacity_denied" && !o.generationStarted,
+      });
     return null;
   },
 });

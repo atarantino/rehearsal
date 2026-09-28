@@ -139,27 +139,17 @@ export function ResumeEditor({
   );
 }
 
-export function DefaultResume() {
+function DefaultResumeControls() {
   const data = useQuery(api.resumes.get, {});
   const save = useMutation(api.resumes.saveDefault);
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  if (!data) return <p className="muted">Loading resume…</p>;
   return (
-    <section className="resume-card" aria-label="Your default resume">
-      <div className="resume-heading">
-        <FileText size={20} />
-        <h2>Your resume</h2>
-        <span className="muted">Optional</span>
-      </div>
-      <p className="muted">
-        Save a default for practice, or use a different resume for each
-        opportunity.
-      </p>
-      {!data ? (
-        <p>Loading resume…</p>
-      ) : editing ? (
+    <>
+      {editing ? (
         <ResumeEditor
           text={data.defaultText}
           onSave={async (text) => {
@@ -170,8 +160,9 @@ export function DefaultResume() {
         />
       ) : (
         <>
-          <div className="resume-actions">
+          <div className="resume-actions resume-status">
             <span>
+              <FileText size={16} />
               {data.defaultText
                 ? "Default resume saved"
                 : "No resume saved yet"}
@@ -192,6 +183,12 @@ export function DefaultResume() {
               </button>
             )}
           </div>
+          {!data.defaultText && (
+            <p className="muted">
+              Optional. It's saved as your default for future practice, and
+              each opportunity can use a different one.
+            </p>
+          )}
           {removing && (
             <div className="resume-removal">
               <p>
@@ -232,7 +229,7 @@ export function DefaultResume() {
           {error}
         </p>
       )}
-    </section>
+    </>
   );
 }
 
@@ -284,7 +281,7 @@ export function OpportunityResume({
         {data.mode === "default"
           ? data.defaultText
             ? "Uses your current default when you start practice."
-            : "No default saved yet. Add one in Your resume, or choose a specific resume here."
+            : "No default saved yet. Add one when you set up practice below, or choose a specific resume here."
           : data.mode === "custom"
             ? "This resume is saved only for this opportunity."
             : "Practice for this opportunity will use no resume."}
@@ -376,47 +373,49 @@ export function PracticeResume({
     api.resumes.get,
     opportunityId
       ? { opportunityId: opportunityId as Id<"opportunities"> }
-      : {},
+      : "skip",
   );
   const id = useId();
-  if (opportunityId)
-    return (
-      <div className="resume-selection">
-        <strong>Resume for this practice</strong>
-        {!!data?.opportunityLabel && (
-          <p>Practicing for {data.opportunityLabel}</p>
-        )}
-        <p className="muted">
-          {!data
-            ? "Loading…"
-            : data.mode === "custom"
-              ? "Using the resume saved for your selected opportunity."
-              : data.mode === "none"
-                ? "No resume — as selected for this opportunity."
-                : data.defaultText
-                  ? "Using your current default resume."
-                  : "No default resume saved."}{" "}
-          Change the selection in the opportunity above.
-        </p>
-      </div>
-    );
+  const usesDefault = opportunityId
+    ? data?.mode === "default"
+    : mode !== "none";
   return (
     <div className="resume-selection">
-      <label htmlFor={id}>Resume for this practice</label>
-      <select
-        id={id}
-        value={mode ?? "default"}
-        onChange={(e) => onMode(e.target.value as "default" | "none")}
-      >
-        <option value="default">Use my default resume</option>
-        <option value="none">No resume</option>
-      </select>
-      {mode !== "none" && data && !data.defaultText && (
-        <p className="muted">
-          No default saved yet. Add one in Your resume below, or practice
-          without it.
-        </p>
+      {opportunityId ? (
+        <>
+          <strong>Resume for this practice</strong>
+          {!!data?.opportunityLabel && (
+            <p>Practicing for {data.opportunityLabel}</p>
+          )}
+          <p className="muted">
+            {!data
+              ? "Loading…"
+              : data.mode === "custom"
+                ? "Using the resume saved for your selected opportunity."
+                : data.mode === "none"
+                  ? "No resume — as selected for this opportunity."
+                  : "Using your default resume."}{" "}
+            Change the selection in the opportunity above.
+          </p>
+        </>
+      ) : (
+        <>
+          <label htmlFor={id}>Resume for this practice</label>
+          <select
+            id={id}
+            value={mode ?? "default"}
+            onChange={(e) => onMode(e.target.value as "default" | "none")}
+          >
+            <option value="default">Use my default resume</option>
+            <option value="none">No resume</option>
+          </select>
+        </>
       )}
+      {/* Hidden rather than unmounted so an unsaved draft survives when the
+          opportunity or resume choice changes. */}
+      <div hidden={!usesDefault}>
+        <DefaultResumeControls />
+      </div>
     </div>
   );
 }

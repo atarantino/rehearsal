@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as aiUsage from "../aiUsage.js";
 import type * as attachments from "../attachments.js";
 import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
@@ -17,6 +18,7 @@ import type * as http from "../http.js";
 import type * as limits from "../limits.js";
 import type * as openai from "../openai.js";
 import type * as preparation from "../preparation.js";
+import type * as providerCleanup from "../providerCleanup.js";
 import type * as research from "../research.js";
 import type * as resumes from "../resumes.js";
 import type * as sessions from "../sessions.js";
@@ -24,6 +26,7 @@ import type * as usage from "../usage.js";
 import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 import type * as voice from "../voice.js";
+import type * as voiceMonitor from "../voiceMonitor.js";
 import type * as workflows from "../workflows.js";
 
 import type {
@@ -33,6 +36,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  aiUsage: typeof aiUsage;
   attachments: typeof attachments;
   auth: typeof auth;
   billing: typeof billing;
@@ -42,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   limits: typeof limits;
   openai: typeof openai;
   preparation: typeof preparation;
+  providerCleanup: typeof providerCleanup;
   research: typeof research;
   resumes: typeof resumes;
   sessions: typeof sessions;
@@ -49,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   validators: typeof validators;
   voice: typeof voice;
+  voiceMonitor: typeof voiceMonitor;
   workflows: typeof workflows;
 }>;
 

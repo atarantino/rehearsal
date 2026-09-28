@@ -580,7 +580,7 @@ describe("subscription allowances", () => {
     });
   });
   it("bounds failed feedback retries per interview", async () => {
-    const { a } = await setup();
+    const { t, a, ownerId } = await setup();
     const id = await a.mutation(internal.sessions.reserve, {
       config,
       requestId: "feedback",
@@ -593,6 +593,16 @@ describe("subscription allowances", () => {
     await a.mutation(internal.sessions.markClosed, { id, reason: "done" });
     for (let attempt = 0; attempt < 3; attempt++) {
       const claim = await a.mutation(internal.sessions.claimFeedback, { id });
+      const request = await t.mutation(internal.aiUsage.begin, {
+        ownerId,
+        sessionId: id,
+        operation: "feedback",
+        feedbackClaim: claim!,
+      });
+      await t.mutation(internal.aiUsage.admitTokens, {
+        id: request.id,
+        inputTokens: 100,
+      });
       await a.mutation(internal.sessions.saveFeedback, {
         id,
         claim: claim!,

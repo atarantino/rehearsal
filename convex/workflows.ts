@@ -18,7 +18,11 @@ export const prepare = workflow.define({
         status: "reading",
       });
       await step.runAction(internal.attachments.importEmail, { id });
-      const extracted = await step.runAction(internal.research.extract, { id });
+      const extracted = await step.runAction(
+        internal.research.extract,
+        { id },
+        { retry: false },
+      );
       await step.runMutation(internal.preparation.update, {
         id,
         status: "researching",
@@ -33,11 +37,15 @@ export const prepare = workflow.define({
         status: "writing",
         sources,
       });
-      const brief = await step.runAction(internal.research.writeBrief, {
-        id,
-        extracted,
-        sources,
-      });
+      const brief = await step.runAction(
+        internal.research.writeBrief,
+        {
+          id,
+          extracted,
+          sources,
+        },
+        { retry: false },
+      );
       await step.runMutation(internal.preparation.update, {
         id,
         status: "ready",
@@ -49,12 +57,7 @@ export const prepare = workflow.define({
         /* Preparation remains available if notification cannot be queued. */
       }
     } catch {
-      await step.runMutation(internal.preparation.update, {
-        id,
-        status: "failed",
-        error:
-          "Preparation could not finish. Check the source URL or try again shortly.",
-      });
+      await step.runMutation(internal.preparation.fail, { id });
     }
     return null;
   },

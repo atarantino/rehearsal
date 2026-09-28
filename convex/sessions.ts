@@ -26,7 +26,10 @@ import {
 } from "../shared/types";
 import { requireUser } from "./users";
 import { limits } from "./limits";
+import { getEntitlement } from "./entitlements";
+import { AI_POLICY } from "../shared/cost-controls";
 import {
+  ensurePeriod,
   limitVoiceStarts,
   reserveVoice,
   settleVoice,
@@ -162,7 +165,7 @@ export const reserve = internalMutation({
     const id = await ctx.db.insert("sessions", {
       ownerId: user._id,
       requestId: args.requestId,
-      expiresAt: now + (maxSeconds(config.mode) + 45) * 1000,
+      expiresAt: now + 45000,
       fragmentCount: 0,
       transcriptBytes: 0,
       feedbackState: "idle",
@@ -183,11 +186,7 @@ export const reserve = internalMutation({
     const s = await ctx.db.get(id);
     await reserveVoice(ctx, s!);
     await ctx.db.patch(id, { record: { ...s!.record, id } });
-    await ctx.scheduler.runAfter(
-      (maxSeconds(config.mode) + 30) * 1000,
-      internal.voice.expire,
-      { id },
-    );
+    await ctx.scheduler.runAfter(45000, internal.voice.expire, { id });
     return id;
   },
 });
@@ -219,8 +218,14 @@ export const activate = internalMutation({
     await ctx.db.patch(id, {
       liveId,
       activatedAt: Date.now(),
+      expiresAt: Date.now() + maxSeconds(s.record.config.mode) * 1000,
       record: { ...s.record, status: "active" },
     });
+    await ctx.scheduler.runAfter(
+      maxSeconds(s.record.config.mode) * 1000,
+      internal.voice.expire,
+      { id },
+    );
     return true;
   },
 });
@@ -233,6 +238,8 @@ export const append = mutation({
       throw new ConvexError("Transcript batch too large.");
     if (s.feedbackState === "running" || s.feedbackState === "ready")
       throw new ConvexError("This transcript is already under review.");
+    // Keep unsaved fragments recoverable until review begins. Existing byte,
+    // event-count and interview-timestamp limits still bound the stored input.
     let count = s.fragmentCount,
       bytes = s.transcriptBytes;
     for (const raw of fragments) {
@@ -293,6 +300,22 @@ export const finalize = mutation({
         },
       });
     } else if (
+      args.confirmed &&
+      args.reason === "close_requested" &&
+      s.record.status === "partial" &&
+      ["provider_closed", "close_requested"].includes(
+        s.record.closeReason ?? "",
+      ) &&
+      s.feedbackState === "idle"
+    ) {
+      await ctx.db.patch(s._id, {
+        record: {
+          ...s.record,
+          status: "completed",
+          closeReason: "close_requested",
+        },
+      });
+    } else if (
       s.record.status === "partial" &&
       s.record.closeReason === "close_requested" &&
       args.reason === "connection_lost" &&
@@ -343,19 +366,58 @@ export const claimFeedback = internalMutation({
       );
     if (
       s.feedbackState === "running" &&
-      (s.feedbackStartedAt ?? 0) > Date.now() - 300000
+      (s.feedbackStartedAt ?? 0) > Date.now() - 540000
     )
       throw new ConvexError("Feedback is already being prepared.");
     if ((s.feedbackAttempts ?? 0) >= 3)
       throw new ConvexError(
         "Feedback could not be generated after three attempts. Your transcript is saved; start a new interview to try again.",
       );
-    await limits.limit(ctx, "feedback", { key: s.ownerId, throws: true });
+    // Fail before transcript hydration, request-row creation or token counting.
+    // Admission repeats these checks atomically because capacity may change.
+    const entitlement = await getEntitlement(ctx, s.ownerId, Date.now());
+    const period = await ensurePeriod(ctx, s.ownerId, entitlement);
+    if ((period.feedbackCalls ?? 0) >= entitlement.voiceMinutes)
+      throw new ConvexError(
+        "Written feedback has reached this period's processing limit. Your transcript is saved.",
+      );
+    if (!(await limits.check(ctx, "feedback", { key: s.ownerId })).ok)
+      throw new ConvexError(
+        "You've reached today's written feedback limit. Try again tomorrow.",
+      );
+    if (
+      !(
+        await limits.check(
+          ctx,
+          entitlement.plan === "free"
+            ? "globalFreeFeedback"
+            : "globalPaidFeedback",
+        )
+      ).ok ||
+      (entitlement.plan === "free" &&
+        !(
+          await limits.check(ctx, "globalFreeAiSpend", {
+            count: AI_POLICY.feedback.output * 12,
+          })
+        ).ok)
+    )
+      throw new ConvexError(
+        "Written feedback has reached today's shared capacity. Please try again tomorrow; this did not use a review attempt.",
+      );
+    if (
+      !(await limits.limit(ctx, "feedbackRequestsDaily", { key: s.ownerId })).ok
+    )
+      throw new ConvexError(
+        "Too many feedback requests today. Try again tomorrow.",
+      );
+    await limits.limit(ctx, "feedbackRequests", {
+      key: s.ownerId,
+      throws: true,
+    });
     const claim = Math.max(Date.now(), (s.feedbackStartedAt ?? 0) + 1);
     await ctx.db.patch(id, {
       feedbackState: "running",
       feedbackStartedAt: claim,
-      feedbackAttempts: (s.feedbackAttempts ?? 0) + 1,
     });
     return claim;
   },
@@ -398,8 +460,12 @@ export const remove = mutation({
     if (s.liveId)
       await ctx.scheduler.runAfter(0, internal.voice.hangupDeleted, {
         liveId: s.liveId,
+        ownerId: s.ownerId,
       });
     await ctx.db.delete(id);
+    await ctx.scheduler.runAfter(0, internal.aiUsage.purgeResults, {
+      sessionId: id,
+    });
     await ctx.scheduler.runAfter(0, internal.sessions.purgeFragments, { id });
     return null;
   },

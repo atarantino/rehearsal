@@ -270,6 +270,18 @@ export function Billing() {
                       Written coaching after practice
                     </li>
                   </ul>
+                  {id === "free" && (
+                    <p className="billing-plan-description">
+                      <strong>Shared Free limit:</strong> Rehearsal funds $1 per
+                      day for preparation, written feedback, and AI follow-ups
+                      across all Free users. New text processing pauses when
+                      this budget is reached and becomes available again at
+                      00:00 UTC. If capacity blocks preparation before
+                      generation starts, retrying it does not use another
+                      preparation. Voice minutes have separate limits. Paid
+                      plans use separate capacity.
+                    </p>
+                  )}
                   <button
                     type="button"
                     className={id === "plus" ? "primary" : "secondary"}
@@ -304,7 +316,13 @@ export function Billing() {
             Paid plans renew monthly. Cancel in the billing portal. No overage
             charges; unused allowances do not roll over. Voice time rounds up to
             the next minute per practice. One preparation researches an
-            opportunity and builds your interview brief.
+            opportunity and builds your interview brief. Written feedback has a
+            monthly processing limit of one generation attempt per included
+            voice minute; retries count when generation starts. Capacity denials
+            do not use a review attempt. Large materials may be reviewed in
+            clearly labeled excerpts. Live follow-up reasoning has the same
+            monthly attempt limit; voice practice can continue with the
+            available context when it is reached.
           </p>
         </>
       )}

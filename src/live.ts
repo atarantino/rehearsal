@@ -1,3 +1,5 @@
+import { cloudEnabled } from "./convex";
+import { delegationFallback } from "../shared/cost-controls";
 import { api } from "./api";
 import { coachedOpening, mockOpening, mockClockCue } from "../shared/interview";
 import {
@@ -36,6 +38,8 @@ export class LiveSession {
   private setupTimer?: ReturnType<typeof setTimeout>;
   private saveTimer?: ReturnType<typeof setInterval>;
   private agendaTimer?: ReturnType<typeof setInterval>;
+  private seenDelegations = new Set<string>();
+  private delegationVersion = 0;
   private startedAt = 0;
   private lastClockCue = -1;
   private muted = false;
@@ -382,6 +386,12 @@ export class LiveSession {
           this.h.fragments(next);
         }
       }
+    } else if (
+      cloudEnabled &&
+      e.type === "session.delegation.created" &&
+      e.delegation?.target === "client"
+    ) {
+      void this.delegate(e.delegation.id);
     } else if (e.type === "session.closed") {
       this.finalEvent = e;
       this.finalWait?.();
@@ -407,6 +417,38 @@ export class LiveSession {
         "The voice service reported an error. You can end and review what was saved.",
       );
     }
+  }
+  private async delegate(delegationId: unknown) {
+    if (
+      typeof delegationId !== "string" ||
+      !this.record ||
+      this.ending ||
+      this.seenDelegations.has(delegationId)
+    )
+      return;
+    // The server independently deduplicates and bounds calls, including callers
+    // bypassing this UI. New tasks supersede stale suggestions in the browser.
+    this.seenDelegations.add(delegationId);
+    const version = ++this.delegationVersion;
+    let content = delegationFallback;
+    try {
+      await this.flush();
+      content = await api<string>(`/sessions/${this.record.id}/delegate`, {
+        delegationId,
+      });
+    } catch {
+      /* Continue interviewing when the bounded backend is unavailable. */
+    }
+    if (version === this.delegationVersion && !this.disposed && !this.ending)
+      this.send({
+        type:
+          content === delegationFallback
+            ? "session.thinking.append"
+            : "session.commentary.append",
+        event_id: crypto.randomUUID(),
+        delegation_id: delegationId,
+        content,
+      });
   }
   async flush() {
     const id = this.record?.id;
