@@ -1,0 +1,60 @@
+/* Preview chrome only. Dark so it never reads as part of the app. */
+.preview-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  padding: 10px 18px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 13px;
+}
+.preview-bar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+}
+.preview-bar select {
+  max-width: min(360px, 70vw);
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 0;
+  font: inherit;
+}
+@media (max-width: 600px) {
+  .preview-bar {
+    position: static;
+  }
+}
+.preview-toggle input {
+  width: auto;
+}
+.preview-log {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #c9d3f2;
+  overflow-wrap: anywhere;
+}
+.preview-main {
+  margin: 0;
+  width: 100%;
+}
+.preview-scenario + .preview-scenario {
+  margin-top: 56px;
+  padding-top: 24px;
+  border-top: 2px dashed var(--line-strong);
+}
+.preview-label {
+  display: inline-block;
+  margin-bottom: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
