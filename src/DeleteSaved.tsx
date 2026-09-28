@@ -6,6 +6,7 @@ export function DeleteSaved({
   description,
   confirmLabel,
   disabled = false,
+  compact = false,
   onDelete,
   onBusy,
 }: {
@@ -13,6 +14,8 @@ export function DeleteSaved({
   description: string;
   confirmLabel: string;
   disabled?: boolean;
+  /** Icon-only trigger for dense lists; the label becomes its accessible name. */
+  compact?: boolean;
   onDelete: () => Promise<void>;
   onBusy: (busy: boolean) => void;
 }) {
@@ -20,7 +23,18 @@ export function DeleteSaved({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!confirming)
-    return (
+    return compact ? (
+      <button
+        type="button"
+        className="icon-button"
+        aria-label={label}
+        title={label}
+        disabled={disabled}
+        onClick={() => setConfirming(true)}
+      >
+        <Trash2 size={16} />
+      </button>
+    ) : (
       <button
         type="button"
         className="text-button"
@@ -63,6 +77,7 @@ export function DeleteSaved({
         </button>
         <button
           type="button"
+          className="secondary"
           disabled={disabled || busy}
           onClick={() => {
             setConfirming(false);

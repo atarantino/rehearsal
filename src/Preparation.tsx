@@ -15,11 +15,45 @@ const stageLabel = {
   researching: "Researching the role and company",
   writing: "Writing your brief",
 };
+const attachmentLabel = {
+  pending: "Waiting to import",
+  imported: "Imported",
+  skipped: "Not imported",
+  failed: "Could not import",
+};
 import { api } from "../convex/_generated/api";
 import type { SessionConfig } from "../shared/types";
 import type { Id } from "../convex/_generated/dataModel";
 import { OpportunityResume } from "./Resume";
 import { DeleteSaved } from "./DeleteSaved";
+
+/** A readable name for the opportunity picker, even before a brief exists. */
+function opportunityName(o: {
+  brief?: { role: string; company: string };
+  kind: "url" | "email";
+  input: string;
+  status: string;
+}) {
+  const name = o.brief
+    ? [o.brief.role.trim() || "Role to confirm", o.brief.company.trim()]
+        .filter(Boolean)
+        .join(" · ")
+    : o.kind === "email"
+      ? "Forwarded invitation"
+      : postingName(o.input);
+  return o.status === "ready"
+    ? name
+    : o.status === "failed"
+      ? `${name} — could not prepare`
+      : `${name} — preparing…`;
+}
+function postingName(input: string) {
+  try {
+    return `Job posting on ${new URL(input).hostname.replace(/^www\./, "")}`;
+  } catch {
+    return input;
+  }
+}
 export function Preparation({
   onSelect,
   onReady,
@@ -170,6 +204,7 @@ export function Preparation({
             <div className="inbox-address">
               <code>{inbox.address}</code>
               <button
+                className="secondary"
                 onClick={() =>
                   void navigator.clipboard
                     .writeText(inbox.address)
@@ -191,6 +226,7 @@ export function Preparation({
                 <div className="inbox-address">
                   <code>{inbox.subjectMarker}</code>
                   <button
+                    className="secondary"
                     onClick={() =>
                       void navigator.clipboard
                         .writeText(inbox.subjectMarker!)
@@ -237,11 +273,11 @@ export function Preparation({
                 </button>
               </>
             )}
-            <small>
+            <p className="muted inbox-note">
               {inbox.autoReply
                 ? "A preparation link will be sent in reply when your brief is ready."
                 : "Your new brief appears here automatically."}
-            </small>
+            </p>
           </>
         ) : (
           <>
@@ -299,17 +335,7 @@ export function Preparation({
           >
             {visibleOpportunities?.map((o) => (
               <option key={o._id} value={o._id}>
-                {o.brief
-                  ? [
-                      o.brief.role.trim() || "Role to confirm",
-                      o.brief.company.trim(),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")
-                  : o.kind === "email"
-                    ? "Forwarded invitation"
-                    : o.input}
-                {o.status === "ready" ? "" : ` (${o.status})`}
+                {opportunityName(o)}
               </option>
             ))}
           </select>
@@ -342,19 +368,18 @@ export function Preparation({
               <ul>
                 {current.attachments.map((a) => (
                   <li key={a.id} id={`attachment-${encodeURIComponent(a.id)}`}>
-                    <strong>{a.filename}</strong>
-                    {" — "}
-                    <span>
-                      {a.status === "pending"
-                        ? "Waiting to import"
-                        : a.status === "imported"
-                          ? "Imported"
-                          : a.status === "skipped"
-                            ? "Not imported"
-                            : "Could not import"}
-                    </span>
+                    <div className="attachment-name">
+                      <strong>{a.filename}</strong>
+                      <span
+                        className="attachment-status"
+                        data-status={a.status}
+                      >
+                        {attachmentLabel[a.status]}
+                      </span>
+                    </div>
                     {a.note && <p>{a.note}</p>}
                     <DeleteSaved
+                      compact
                       label={`Remove ${a.filename}`}
                       confirmLabel="Remove prep material"
                       description={`Remove ${a.filename} from this opportunity? The current brief will be cleared so you can prepare again using the remaining sources. Past practice sessions and the original email are kept.`}
@@ -382,6 +407,7 @@ export function Preparation({
               {current.status === "ready" &&
                 current.attachments.some((a) => a.status === "failed") && (
                   <button
+                    className="secondary"
                     disabled={busy}
                     onClick={() =>
                       void retry({ id: current._id }).catch((e) =>
@@ -427,6 +453,7 @@ export function Preparation({
             <div className="prep-progress failed">
               <p>{current.error}</p>
               <button
+                className="secondary"
                 disabled={busy}
                 onClick={() =>
                   void retry({ id: current._id }).catch((e) =>
