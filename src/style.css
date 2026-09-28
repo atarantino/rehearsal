@@ -1455,9 +1455,20 @@ summary::-webkit-details-marker {
   gap: 14px;
   background: var(--error-bg);
 }
-.prep-progress.failed p {
+.prep-progress.failed > div {
   flex: 1;
+  min-width: 0;
+}
+.prep-progress.failed p {
   margin: 0;
+}
+.prep-progress.failed .prep-source {
+  margin-top: 4px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.prep-progress.failed .prep-source a {
+  color: var(--muted);
 }
 .prep-stages {
   list-style: none;
