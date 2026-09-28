@@ -10,6 +10,56 @@ import {
   attachment,
 } from "./validators";
 export default defineSchema({
+  aiRequests: defineTable({
+    ownerId: v.id("users"),
+    sessionId: v.optional(v.id("sessions")),
+    opportunityId: v.optional(v.id("opportunities")),
+    delegationId: v.optional(v.string()),
+    operation: v.union(
+      v.literal("feedback"),
+      v.literal("delegation"),
+      v.literal("extraction"),
+      v.literal("brief"),
+    ),
+    model: v.string(),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("unknown"),
+      v.literal("rejected"),
+    ),
+    countedInputTokens: v.optional(v.number()),
+    reservedCostMicros: v.optional(v.number()),
+    inputTokens: v.optional(v.number()),
+    cachedInputTokens: v.optional(v.number()),
+    cacheWriteTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    reasoningTokens: v.optional(v.number()),
+    responseId: v.optional(v.string()),
+    requestId: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    result: v.optional(v.string()),
+    finishedAt: v.optional(v.number()),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_sessionId_and_delegationId", ["sessionId", "delegationId"])
+    .index("by_state", ["state"]),
+  providerClosures: defineTable({
+    ownerId: v.id("users"),
+    liveId: v.string(),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("closed"),
+      v.literal("failed"),
+    ),
+    attempts: v.number(),
+    updatedAt: v.number(),
+    providerSeconds: v.optional(v.number()),
+    errorCode: v.optional(v.string()),
+  })
+    .index("by_liveId", ["liveId"])
+    .index("by_state", ["state"]),
   billingAccounts: defineTable({
     ownerId: v.id("users"),
     stripeCustomerId: v.optional(v.string()),
@@ -53,6 +103,7 @@ export default defineSchema({
     ),
     feedbackStartedAt: v.optional(v.number()),
     feedbackAttempts: v.optional(v.number()),
+    delegationCalls: v.optional(v.number()),
   })
     .index("by_ownerId", ["ownerId"])
     .index("by_ownerId_and_requestId", ["ownerId", "requestId"]),
@@ -64,6 +115,8 @@ export default defineSchema({
     voiceMinutesReserved: v.number(),
     preparationsUsed: v.number(),
     preparationLimit: v.optional(v.number()),
+    feedbackCalls: v.optional(v.number()),
+    delegationCalls: v.optional(v.number()),
   }).index("by_ownerId_and_periodStart", ["ownerId", "periodStart"]),
   voiceReservations: defineTable({
     ownerId: v.id("users"),
@@ -74,6 +127,17 @@ export default defineSchema({
     chargedMinutes: v.optional(v.number()),
     // UTC day whose shared Free capacity this reservation debited, if any.
     freeDay: v.optional(v.number()),
+    providerStartState: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("created"),
+        v.literal("failed"),
+        v.literal("unknown"),
+      ),
+    ),
+    providerRequestId: v.optional(v.string()),
+    providerErrorCode: v.optional(v.string()),
+    providerLiveId: v.optional(v.string()),
   }).index("by_sessionId", ["sessionId"]),
   // Shared Free voice capacity per UTC day: reserved minutes minus releases.
   freeVoiceDays: defineTable({

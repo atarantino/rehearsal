@@ -17,6 +17,20 @@ export const limits = new RateLimiter(components.rateLimiter, {
     period: DAY,
     start: 0,
   },
+  globalFreeAiSpend: {
+    kind: "fixed window",
+    rate: 1_000_000,
+    period: DAY,
+    start: 0,
+  },
+  globalFreeResearch: { kind: "fixed window", rate: 20, period: DAY, start: 0 },
+  globalFreeFeedback: { kind: "fixed window", rate: 60, period: DAY, start: 0 },
+  globalPaidFeedback: {
+    kind: "fixed window",
+    rate: 500,
+    period: DAY,
+    start: 0,
+  },
   globalResearch: { kind: "fixed window", rate: 100, period: DAY },
   // Over-quota invitations retained per owner and service-wide per UTC day;
   // excess is acknowledged and dropped.

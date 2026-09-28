@@ -13,6 +13,7 @@ import { prepStatus, source, brief, attachment } from "./validators";
 import { requireUser } from "./users";
 import { publicUrl } from "../shared/preparation";
 import { limits } from "./limits";
+import { getEntitlement } from "./entitlements";
 import { consumePreparation } from "./usage";
 import { workflow } from "./workflows";
 import type { WorkflowId } from "@convex-dev/workflow";
@@ -38,7 +39,13 @@ export async function enqueue(
   if (old) return old._id;
   await consumePreparation(ctx, args.ownerId);
   await limits.limit(ctx, "research", { key: args.ownerId, throws: true });
-  await limits.limit(ctx, "globalResearch", { throws: true });
+  await limits.limit(
+    ctx,
+    (await getEntitlement(ctx, args.ownerId, Date.now())).plan === "free"
+      ? "globalFreeResearch"
+      : "globalResearch",
+    { throws: true },
+  );
   const id = await ctx.db.insert("opportunities", {
     ...args,
     status: "queued",
@@ -161,7 +168,13 @@ export const retry = mutation({
       );
     await consumePreparation(ctx, user._id);
     await limits.limit(ctx, "research", { key: user._id, throws: true });
-    await limits.limit(ctx, "globalResearch", { throws: true });
+    await limits.limit(
+      ctx,
+      (await getEntitlement(ctx, user._id, Date.now())).plan === "free"
+        ? "globalFreeResearch"
+        : "globalResearch",
+      { throws: true },
+    );
     const workflowId = await workflow.start(ctx, internal.workflows.prepare, {
       id,
     });

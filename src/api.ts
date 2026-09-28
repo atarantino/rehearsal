@@ -21,12 +21,14 @@ async function cloudApi(
     });
   }
   const match = path.match(
-    /^\/sessions\/([^/]+)(?:\/(events|close|finalize|feedback))?$/,
+    /^\/sessions\/([^/]+)(?:\/(events|close|finalize|feedback|delegate))?$/,
   );
   if (!match) throw new Error("Unknown operation.");
   const id = match[1] as Id<"sessions">;
   if (method === "DELETE")
     return convex.mutation(backend.sessions.remove, { id });
+  if (match[2] === "delegate")
+    return convex.action(backend.voice.delegate, { id, ...body });
   if (match[2] === "events")
     return convex.mutation(backend.sessions.append, { id, ...body });
   if (match[2] === "close") return convex.action(backend.voice.close, { id });

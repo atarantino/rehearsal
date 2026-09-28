@@ -304,7 +304,12 @@ export function Billing() {
             Paid plans renew monthly. Cancel in the billing portal. No overage
             charges; unused allowances do not roll over. Voice time rounds up to
             the next minute per practice. One preparation researches an
-            opportunity and builds your interview brief.
+            opportunity and builds your interview brief. Written feedback has a
+            monthly processing limit of one generation attempt per included
+            voice minute; retries count toward it. Large materials may need
+            shortening. Free access also has shared daily capacity limits. Live
+            follow-up reasoning has the same monthly attempt limit; voice
+            practice can continue with the available context when it is reached.
           </p>
         </>
       )}

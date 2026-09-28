@@ -1,3 +1,4 @@
+import { TRANSCRIPT_SAVE_GRACE_MS } from "../shared/cost-controls";
 import { v, ConvexError, type Infer } from "convex/values";
 import {
   query,
@@ -162,7 +163,7 @@ export const reserve = internalMutation({
     const id = await ctx.db.insert("sessions", {
       ownerId: user._id,
       requestId: args.requestId,
-      expiresAt: now + (maxSeconds(config.mode) + 45) * 1000,
+      expiresAt: now + 45000,
       fragmentCount: 0,
       transcriptBytes: 0,
       feedbackState: "idle",
@@ -183,11 +184,7 @@ export const reserve = internalMutation({
     const s = await ctx.db.get(id);
     await reserveVoice(ctx, s!);
     await ctx.db.patch(id, { record: { ...s!.record, id } });
-    await ctx.scheduler.runAfter(
-      (maxSeconds(config.mode) + 30) * 1000,
-      internal.voice.expire,
-      { id },
-    );
+    await ctx.scheduler.runAfter(45000, internal.voice.expire, { id });
     return id;
   },
 });
@@ -219,8 +216,14 @@ export const activate = internalMutation({
     await ctx.db.patch(id, {
       liveId,
       activatedAt: Date.now(),
+      expiresAt: Date.now() + maxSeconds(s.record.config.mode) * 1000,
       record: { ...s.record, status: "active" },
     });
+    await ctx.scheduler.runAfter(
+      maxSeconds(s.record.config.mode) * 1000,
+      internal.voice.expire,
+      { id },
+    );
     return true;
   },
 });
@@ -233,6 +236,11 @@ export const append = mutation({
       throw new ConvexError("Transcript batch too large.");
     if (s.feedbackState === "running" || s.feedbackState === "ready")
       throw new ConvexError("This transcript is already under review.");
+    if (
+      s.record.endedAt &&
+      Date.now() > Date.parse(s.record.endedAt) + TRANSCRIPT_SAVE_GRACE_MS
+    )
+      throw new ConvexError("The transcript saving window has closed.");
     let count = s.fragmentCount,
       bytes = s.transcriptBytes;
     for (const raw of fragments) {
@@ -398,6 +406,7 @@ export const remove = mutation({
     if (s.liveId)
       await ctx.scheduler.runAfter(0, internal.voice.hangupDeleted, {
         liveId: s.liveId,
+        ownerId: s.ownerId,
       });
     await ctx.db.delete(id);
     await ctx.scheduler.runAfter(0, internal.sessions.purgeFragments, { id });
