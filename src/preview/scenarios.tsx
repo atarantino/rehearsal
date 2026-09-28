@@ -264,6 +264,14 @@ const failed: Opportunity = {
     "We could not read that page. It may need a sign-in. Try a public link to the posting, or forward the invitation instead.",
 };
 
+// Same job board host as `failed`, so the picker must still tell them apart.
+const failedSameHost: Opportunity = {
+  ...failed,
+  _id: oppId(6),
+  input:
+    "https://intranet.acme.example/careers/engineering/platform/jobs/2240?source=referral",
+};
+
 const defaultResumeText =
   "Jordan Lee\nProduct designer · 9 years\n\nLead Product Designer, Fieldnote (2021–present)\n- Redesigned appointment booking; cut abandoned bookings by a third.\n…";
 
@@ -485,7 +493,7 @@ export const scenarios: Scenario[] = [
     group: "Preparation",
     title: "Several opportunities",
     handlers: preparation(
-      [designer, engineer, researching, failed],
+      [designer, engineer, researching, failed, failedSameHost],
       sharedInbox,
     ),
     render: prep,

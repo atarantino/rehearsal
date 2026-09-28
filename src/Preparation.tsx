@@ -47,9 +47,17 @@ function opportunityName(o: {
       ? `${name} — could not prepare`
       : `${name} — preparing…`;
 }
+// Postings often share a job board host, so keep the path (and any query,
+// where some boards put the job ID). Long paths keep their last segment.
 function postingName(input: string) {
   try {
-    return `Job posting on ${new URL(input).hostname.replace(/^www\./, "")}`;
+    const url = new URL(input);
+    const host = url.hostname.replace(/^www\./, "");
+    const segments = url.pathname.split("/").filter(Boolean);
+    const full = [host, ...segments].join("/") + url.search;
+    return full.length <= 60 || segments.length < 2
+      ? full
+      : `${host}/…/${segments.at(-1)}${url.search}`;
   } catch {
     return input;
   }
@@ -451,7 +459,16 @@ export function Preparation({
           )}
           {current?.status === "failed" && (
             <div className="prep-progress failed">
-              <p>{current.error}</p>
+              <div>
+                <p>{current.error}</p>
+                {current.kind === "url" && (
+                  <p className="prep-source">
+                    <a href={current.input} target="_blank" rel="noreferrer">
+                      {current.input}
+                    </a>
+                  </p>
+                )}
+              </div>
               <button
                 className="secondary"
                 disabled={busy}

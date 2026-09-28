@@ -6,7 +6,13 @@ import "../style.css";
 import "./preview.css";
 
 const groups = [...new Set(scenarios.map((s) => s.group))];
-const hashId = () => decodeURIComponent(location.hash.slice(1)) || "all";
+// The hash picks a scenario; any other hash is an in-page anchor (for example
+// an email attachment's Source link) and must not change the selection.
+const scenarioIds = new Set(["all", ...scenarios.map((s) => s.id)]);
+const hashId = () => {
+  const id = decodeURIComponent(location.hash.slice(1)) || "all";
+  return scenarioIds.has(id) ? id : null;
+};
 
 function Stage({
   scenario,
@@ -30,7 +36,7 @@ function Stage({
 }
 
 function Preview() {
-  const [id, setId] = useState(hashId);
+  const [id, setId] = useState(() => hashId() ?? "all");
   const [openDetails, setOpenDetails] = useState(false);
   const [calls, setCalls] = useState<string[]>([]);
   const stage = useRef<HTMLDivElement>(null);
@@ -38,7 +44,10 @@ function Preview() {
   const shown = selected ? [selected] : scenarios;
 
   useEffect(() => {
-    const sync = () => setId(hashId());
+    const sync = () => {
+      const next = hashId();
+      if (next) setId(next);
+    };
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
