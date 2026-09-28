@@ -478,6 +478,7 @@ export default function App() {
                   saved transcript.
                 </p>
                 <button
+                  className="secondary"
                   disabled={busy}
                   onClick={async () => {
                     const s = sessions.find(

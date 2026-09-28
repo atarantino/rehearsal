@@ -19,6 +19,7 @@
     "tests",
     "scripts",
     "vite.config.ts",
+    "vite.preview.config.ts",
     "playwright.config.ts"
   ]
 }

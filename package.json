@@ -15,6 +15,7 @@
     "check:codex": "tsx scripts/check-codex.ts",
     "dev:local": "VITE_LOCAL_MODE=true tsx server/index.ts",
     "dev:backend": "convex dev",
+    "dev:preview": "vite --config vite.preview.config.ts",
     "deploy": "npx @convex-dev/static-hosting deploy",
     "test:backend": "vitest run",
     "postinstall": "node scripts/patch-agentmail.mjs",
