@@ -26,7 +26,10 @@ import {
 } from "../shared/types";
 import { requireUser } from "./users";
 import { limits } from "./limits";
+import { getEntitlement } from "./entitlements";
+import { AI_POLICY } from "../shared/cost-controls";
 import {
+  ensurePeriod,
   limitVoiceStarts,
   reserveVoice,
   settleVoice,
@@ -369,6 +372,43 @@ export const claimFeedback = internalMutation({
     if ((s.feedbackAttempts ?? 0) >= 3)
       throw new ConvexError(
         "Feedback could not be generated after three attempts. Your transcript is saved; start a new interview to try again.",
+      );
+    // Fail before transcript hydration, request-row creation or token counting.
+    // Admission repeats these checks atomically because capacity may change.
+    const entitlement = await getEntitlement(ctx, s.ownerId, Date.now());
+    const period = await ensurePeriod(ctx, s.ownerId, entitlement);
+    if ((period.feedbackCalls ?? 0) >= entitlement.voiceMinutes)
+      throw new ConvexError(
+        "Written feedback has reached this period's processing limit. Your transcript is saved.",
+      );
+    if (!(await limits.check(ctx, "feedback", { key: s.ownerId })).ok)
+      throw new ConvexError(
+        "You've reached today's written feedback limit. Try again tomorrow.",
+      );
+    if (
+      !(
+        await limits.check(
+          ctx,
+          entitlement.plan === "free"
+            ? "globalFreeFeedback"
+            : "globalPaidFeedback",
+        )
+      ).ok ||
+      (entitlement.plan === "free" &&
+        !(
+          await limits.check(ctx, "globalFreeAiSpend", {
+            count: AI_POLICY.feedback.output * 12,
+          })
+        ).ok)
+    )
+      throw new ConvexError(
+        "Written feedback has reached today's shared capacity. Please try again tomorrow; this did not use a review attempt.",
+      );
+    if (
+      !(await limits.limit(ctx, "feedbackRequestsDaily", { key: s.ownerId })).ok
+    )
+      throw new ConvexError(
+        "Too many feedback requests today. Try again tomorrow.",
       );
     await limits.limit(ctx, "feedbackRequests", {
       key: s.ownerId,

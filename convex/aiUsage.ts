@@ -195,10 +195,14 @@ export const admitTokens = internalMutation({
         throw new ConvexError(
           "Feedback could not be generated after three attempts.",
         );
-      if (first)
-        await limits.limit(ctx, "feedback", {
-          key: request.ownerId,
-          throws: true,
+      if (
+        first &&
+        !(await limits.limit(ctx, "feedback", { key: request.ownerId })).ok
+      )
+        throw new ConvexError({
+          code: "admission_denied",
+          message:
+            "You've reached today's written feedback limit. Try again tomorrow; this did not use a review attempt.",
         });
       const period = await ensurePeriod(ctx, request.ownerId, entitlement);
       if ((period.feedbackCalls ?? 0) >= entitlement.voiceMinutes)

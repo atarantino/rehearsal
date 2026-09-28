@@ -441,26 +441,13 @@ it.each(["globalFreeAiSpend", "globalFreeFeedback"] as const)(
         throws: true,
       }),
     );
-    for (let n = 0; n < 3; n++) {
-      const claim = await a.mutation(internal.sessions.claimFeedback, { id });
-      const request = await t.mutation(internal.aiUsage.begin, {
-        ownerId,
-        sessionId: id,
-        operation: "feedback",
-        feedbackClaim: claim!,
-      });
-      await expect(
-        t.mutation(internal.aiUsage.admitTokens, {
-          id: request.id,
-          inputTokens: 100,
-        }),
-      ).rejects.toThrow("shared capacity");
-      await t.mutation(internal.sessions.saveFeedback, {
-        id,
-        claim: claim!,
-        error: "capacity",
-      });
-    }
+    const fetch = provider();
+    for (let n = 0; n < 3; n++)
+      await expect(a.action(api.voice.review, { id })).rejects.toThrow(
+        "shared capacity",
+      );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await t.query(internal.aiUsage.recent, { ownerId })).toEqual([]);
     expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackAttempts ?? 0).toBe(
       0,
     );
@@ -887,3 +874,80 @@ it("uses an intermediate preparation excerpt and labels the resulting brief", as
     JSON.parse(fetch.mock.calls[1][1]!.body as string).input,
   );
 });
+
+it("rejects monthly-exhausted feedback before any token count or request row", async () => {
+  const { t, a, ownerId, id } = await setup();
+  vi.setSystemTime(Date.now() + 10000);
+  await t.mutation(internal.sessions.markClosed, { id, reason: "done" });
+  await t.run(async (ctx) => {
+    const p = (await ctx.db.query("usagePeriods").first())!;
+    await ctx.db.patch(p._id, { feedbackCalls: 10 });
+  });
+  const fetch = provider();
+  await expect(a.action(api.voice.review, { id })).rejects.toThrow(
+    "processing limit",
+  );
+  expect(fetch).not.toHaveBeenCalled();
+  expect(await t.query(internal.aiUsage.recent, { ownerId })).toEqual([]);
+});
+it("bounds denied-size feedback claims per day without using admitted attempts", async () => {
+  const { t, a, id } = await setup();
+  vi.setSystemTime(Date.now() + 10000);
+  await t.mutation(internal.sessions.markClosed, { id, reason: "done" });
+  for (let n = 0; n < 60; n++) {
+    if (n % 10 === 0) vi.setSystemTime(Date.now() + 60001);
+    const claim = await a.mutation(internal.sessions.claimFeedback, { id });
+    await t.mutation(internal.sessions.saveFeedback, {
+      id,
+      claim: claim!,
+      error: "count failure",
+    });
+  }
+  vi.setSystemTime(Date.now() + 60001);
+  await expect(
+    a.mutation(internal.sessions.claimFeedback, { id }),
+  ).rejects.toThrow("Too many feedback requests today");
+  expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackAttempts ?? 0).toBe(0);
+});
+it.each(["globalFreeAiSpend", "globalFreeFeedback", "feedback"] as const)(
+  "admission still preserves claims when %s fills after the preflight",
+  async (limiter) => {
+    const { t, a, ownerId, id } = await setup();
+    vi.setSystemTime(Date.now() + 10000);
+    await t.mutation(internal.sessions.markClosed, { id, reason: "done" });
+    const claim = await a.mutation(internal.sessions.claimFeedback, { id });
+    const request = await t.mutation(internal.aiUsage.begin, {
+      ownerId,
+      sessionId: id,
+      operation: "feedback",
+      feedbackClaim: claim!,
+    });
+    await t.run((ctx) =>
+      limits.limit(ctx, limiter, {
+        ...(limiter === "feedback" ? { key: ownerId } : {}),
+        count:
+          limiter === "globalFreeAiSpend"
+            ? 1_000_000
+            : limiter === "feedback"
+              ? 25
+              : 60,
+        throws: true,
+      }),
+    );
+    await expect(
+      t.mutation(internal.aiUsage.admitTokens, {
+        id: request.id,
+        inputTokens: 100,
+      }),
+    ).rejects.toThrow(
+      limiter === "feedback" ? "Try again tomorrow" : "shared capacity",
+    );
+    expect((await t.run((ctx) => ctx.db.get(id)))?.feedbackAttempts ?? 0).toBe(
+      0,
+    );
+    expect(
+      (await t.run((ctx) => ctx.db.query("usagePeriods").first()))
+        ?.feedbackCalls ?? 0,
+    ).toBe(0);
+  },
+);

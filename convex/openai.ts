@@ -197,7 +197,7 @@ export async function structured<T>(
     const error =
       data &&
       typeof data === "object" &&
-      data.code === "capacity_denied" &&
+      (data.code === "capacity_denied" || data.code === "admission_denied") &&
       typeof data.message === "string"
         ? new OpenAIError(data.message, data.code)
         : caught;
@@ -244,7 +244,9 @@ export async function structured<T>(
         errorCode: error
           ? error instanceof OpenAIError
             ? error.code
-            : "invalid_or_lost_response"
+            : !sent && error instanceof ConvexError
+              ? "admission_denied"
+              : "invalid_or_lost_response"
           : undefined,
       },
     });

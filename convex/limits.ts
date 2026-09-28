@@ -4,6 +4,12 @@ export const limits = new RateLimiter(components.rateLimiter, {
   resume: { kind: "token bucket", rate: 30, period: HOUR, capacity: 30 },
   research: { kind: "fixed window", rate: 10, period: DAY },
   voice: { kind: "fixed window", rate: 10, period: DAY },
+  feedbackRequestsDaily: {
+    kind: "fixed window",
+    rate: 60,
+    period: DAY,
+    start: 0,
+  },
   feedbackRequests: {
     kind: "token bucket",
     rate: 10,
