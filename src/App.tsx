@@ -38,7 +38,7 @@ import { api } from "./api";
 import { cloudEnabled, convex } from "./convex";
 import { api as backend } from "../convex/_generated/api";
 import { Preparation } from "./Preparation";
-import { DefaultResume, PracticeResume, LocalResume } from "./Resume";
+import { PracticeResume, LocalResume } from "./Resume";
 import { SignOut } from "./Auth";
 import { Billing } from "./Billing";
 import { LiveSession } from "./live";
@@ -774,7 +774,6 @@ export default function App() {
                   </p>
                 </section>
               </form>
-              {cloudEnabled && <DefaultResume />}
             </>
           )}
           {view === "live" && (

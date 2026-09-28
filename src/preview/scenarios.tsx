@@ -8,7 +8,6 @@ import { PLANS } from "../../shared/plans";
 import { Billing } from "../Billing";
 import { Preparation } from "../Preparation";
 import {
-  DefaultResume,
   OpportunityResume,
   PracticeResume,
   ResumeEditor,
@@ -508,23 +507,26 @@ export const scenarios: Scenario[] = [
   {
     id: "resume-default-empty",
     group: "Resume",
-    title: "Your resume, nothing saved",
+    title: "Practice resume, nothing saved",
+    panel: true,
     handlers: resume({}),
-    render: () => <DefaultResume />,
+    render: () => <PracticeResume onMode={log("onMode")} />,
   },
   {
     id: "resume-default-saved",
     group: "Resume",
-    title: "Your resume, default saved",
+    title: "Practice resume, default saved",
+    panel: true,
     handlers: resume({ defaultText: defaultResumeText }),
-    render: () => <DefaultResume />,
+    render: () => <PracticeResume onMode={log("onMode")} />,
   },
   {
     id: "resume-default-loading",
     group: "Resume",
-    title: "Your resume, loading",
+    title: "Practice resume, loading",
+    panel: true,
     handlers: resume(LOADING),
-    render: () => <DefaultResume />,
+    render: () => <PracticeResume onMode={log("onMode")} />,
   },
   {
     id: "resume-editor-empty",
@@ -577,14 +579,6 @@ export const scenarios: Scenario[] = [
       customText: "Jordan Lee — tailored for Northwind\n…",
     }),
     render: () => <OpportunityResume opportunityId={oppId(1)} />,
-  },
-  {
-    id: "resume-practice",
-    group: "Resume",
-    title: "Practice resume, no default",
-    panel: true,
-    handlers: resume({}),
-    render: () => <PracticeResume onMode={log("onMode")} />,
   },
   {
     id: "resume-practice-opportunity",

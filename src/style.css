@@ -1725,28 +1725,21 @@ summary::-webkit-details-marker {
 }
 
 /* Resume */
-.resume-card {
-  padding: 22px 26px;
-  margin-bottom: 20px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--panel);
-}
-.resume-heading,
 .resume-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
 }
-.resume-card .resume-actions > span {
+.resume-status {
+  margin-top: 12px;
+}
+.resume-status > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 14px;
 }
-.resume-heading h2 {
-  font-size: 18px;
-  margin: 0;
-}
-.resume-card p,
 .resume-selection p,
 .resume-editor p {
   font-size: 13px;
@@ -1790,7 +1783,6 @@ summary::-webkit-details-marker {
 .resume-editor {
   margin-top: 16px;
 }
-.resume-card button,
 .resume-selection button,
 .resume-editor button {
   padding: 9px 13px;
@@ -1805,7 +1797,6 @@ summary::-webkit-details-marker {
   color: #fff;
   border-color: var(--accent);
 }
-.resume-card button:disabled,
 .resume-selection button:disabled {
   opacity: 0.55;
   cursor: default;
@@ -2211,9 +2202,6 @@ summary::-webkit-details-marker {
   .inbox-address {
     align-items: flex-start;
     flex-direction: column;
-  }
-  .resume-card {
-    padding: 18px;
   }
   .billing-current,
   .billing-plan {
